@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: vernacular-voice-to-sop
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: standard
+    healthCheckPath: /api/health
+    envVars:
+      - key: V2S_LLM_BASE_URL
+        value: https://api.groq.com/openai/v1
+      - key: V2S_LLM_MODEL
+        value: llama-3.3-70b-versatile
+      - key: V2S_LLM_API_KEY
+        sync: false
+      - key: HF_HUB_DISABLE_XET
+        value: "1"

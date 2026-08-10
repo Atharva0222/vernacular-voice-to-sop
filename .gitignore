@@ -1,0 +1,6 @@
+backend/.venv/
+backend/**/__pycache__/
+*.pyc
+backend/.env
+backend/static_preview/*.mp3
+.DS_Store
