@@ -47,6 +47,27 @@ class StoredStep(Step):
     id: int
 
 
+class Line(BaseModel):
+    id: int
+    name: str
+    plant_id: int
+
+
+class MachineCreate(BaseModel):
+    line_id: int
+    name: str = Field(min_length=1, max_length=60)
+
+
+class MachineSummary(BaseModel):
+    id: int
+    name: str
+    line_name: str
+    sop_id: int | None
+    sop_version: int | None
+    language: Language | None
+    step_count: int
+
+
 class SOPSummary(BaseModel):
     id: int
     machine_id: int
@@ -73,6 +94,14 @@ class Triage(BaseModel):
     suggested_change: str | None
 
 
+class Guidance(BaseModel):
+    """Whether the machine's own SOP already answers what the worker said."""
+
+    covered_by_sop: bool
+    answer: str | None
+    step_id: int | None
+
+
 class ReportCreated(BaseModel):
     report_id: int
     receipt: str
@@ -82,6 +111,7 @@ class ReportCreated(BaseModel):
 class ReportReceipt(BaseModel):
     status: ReportStatus
     ack_audio_key: str | None
+    answered_by_sop: bool
 
 
 class Report(BaseModel):

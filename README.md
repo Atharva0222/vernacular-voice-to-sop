@@ -6,8 +6,8 @@ on any card to report a problem in their own language. The report is triaged aga
 into **machine**, **sop** or **understanding**, routed to the line's manager (never the
 supervisor), and answered back as voice on the card.
 
-See `WHAT_IS_THIS.md` for the problem, `feature.md` and `feature-plan.md` for the worker
-feedback loop, and `plan.md` for build status.
+`TESTING.md` walks through the whole loop by hand. `docs/` holds the worker feedback
+specification and the plan it was built from.
 
 ## Pipeline
 
@@ -26,8 +26,9 @@ cp .env.example .env        # then set V2S_AUTH_SECRET and your LLM key
 .venv/Scripts/uvicorn app.main:app --reload --port 8001
 ```
 
-Open `http://localhost:8001/preview/index.html?machine=1` for the worker cards and
-`/preview/inbox.html` for the manager inbox. Models download on first transcription.
+Open `http://localhost:8001/preview/index.html` and pick a role: **Worker** (machine list, that machine's cards,
+and one speak button that the SOP answers when it can), **Supervisor** (add machines, record a procedure for one) or **Manager**
+(the report inbox). Models download on first transcription.
 
 Docker: `docker build -t voice-to-sop backend && docker run --env-file backend/.env -p 8000:8000 voice-to-sop`.
 

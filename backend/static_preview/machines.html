@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Machines</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Mukta:wght@400;600;700&display=swap" rel="stylesheet" />
+<link href="ui.css" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.js"
+  integrity="sha384-WBRt9V/J/erVtkEuP91HUFRv9MvHzFiFOp4/zTDp4xkcMG7aOeIv2asTV4yxFLWa"
+  crossorigin="anonymous"></script>
+</head>
+<body>
+  <div class="wrap">
+    <a class="back" href="index.html"><i data-lucide="arrow-left" style="width:16px;height:16px"></i><span id="homeLink">Home</span></a>
+
+    <header class="head">
+      <h1 id="pageTitle">Pick a machine</h1>
+      <p id="subtitle"></p>
+    </header>
+
+    <div id="grid" class="machines"></div>
+    <p id="error" class="alert hidden"></p>
+
+    <section id="addSection" class="hidden" style="margin-top:22px">
+      <button id="addToggle" class="dashed"><i data-lucide="plus" style="width:18px;height:18px"></i> Add a machine</button>
+      <form id="addForm" class="block hidden">
+        <h2>New machine</h2>
+        <div class="row">
+          <input id="newName" required maxlength="60" placeholder="Machine name, e.g. Drill 2" class="field grow" />
+          <select id="newLine" class="field"></select>
+          <button class="btn">Add machine</button>
+          <button type="button" id="addCancel" class="btn link">Cancel</button>
+        </div>
+      </form>
+    </section>
+  </div>
+
+<script src="app.js"></script>
+<script>
+const role = param('role') === 'supervisor' ? 'supervisor' : 'worker';
+const target = role === 'supervisor' ? 'create.html' : 'cards.html';
+
+/** The worker's side of the app is entirely in Hindi; supervisors and managers work in English. */
+const WORDS = role === 'supervisor'
+  ? { home: 'Home', title: 'Pick a machine', subtitle: 'Choose the machine you are recording a procedure for.',
+      cards: (m) => `${m.step_count} cards, version ${m.sop_version}`, none: 'No cards yet' }
+  : { home: 'होम', title: 'मशीन चुनें', subtitle: 'हर मशीन के अपने कार्ड हैं। अपनी मशीन चुनें।',
+      cards: (m) => `${m.step_count} कार्ड, संस्करण ${m.sop_version}`, none: 'अभी कोई कार्ड नहीं' };
+
+document.getElementById('homeLink').textContent = WORDS.home;
+document.getElementById('pageTitle').textContent = WORDS.title;
+document.getElementById('subtitle').textContent = WORDS.subtitle;
+document.title = WORDS.title;
+if (role !== 'supervisor') {
+  document.documentElement.lang = 'hi';
+  document.body.classList.add('worker');
+}
+
+function card(machine) {
+  const hasSop = machine.sop_id !== null;
+  const a = document.createElement('a');
+  a.href = `${target}?machine=${machine.id}`;
+  a.className = 'machine';
+  a.innerHTML = `
+    <h2></h2>
+    <p class="line"></p>
+    <p class="state"><span class="plate ${hasSop ? 'safe' : 'caution'}"></span></p>`;
+  a.querySelector('h2').textContent = machine.name;
+  a.querySelector('.line').textContent = machine.line_name;
+  a.querySelector('.plate').textContent = hasSop ? WORDS.cards(machine) : WORDS.none;
+  return a;
+}
+
+const grid = document.getElementById('grid');
+const errorBox = document.getElementById('error');
+
+function showError(msg) {
+  errorBox.textContent = msg;
+  errorBox.classList.remove('hidden');
+}
+
+async function loadMachines() {
+  grid.innerHTML = '';
+  (await api('/api/machines')).forEach((m) => grid.appendChild(card(m)));
+  lucide.createIcons();
+}
+
+/** Only a supervisor adds machines; a worker just picks from the ones that exist. */
+async function setUpAdding() {
+  const addForm = document.getElementById('addForm');
+  const addToggle = document.getElementById('addToggle');
+  const select = document.getElementById('newLine');
+
+  for (const line of await api('/api/lines')) {
+    select.appendChild(new Option(line.name, line.id));
+  }
+  document.getElementById('addSection').classList.remove('hidden');
+
+  const close = () => { addForm.classList.add('hidden'); addToggle.classList.remove('hidden'); };
+  addToggle.addEventListener('click', () => {
+    addToggle.classList.add('hidden');
+    addForm.classList.remove('hidden');
+    document.getElementById('newName').focus();
+  });
+  document.getElementById('addCancel').addEventListener('click', close);
+
+  addForm.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const name = document.getElementById('newName');
+    try {
+      const machine = await api('/api/machines', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ line_id: Number(select.value), name: name.value.trim() }),
+      });
+      name.value = '';
+      close();
+      await loadMachines();
+      location.href = `create.html?machine=${machine.id}`;
+    } catch (err) {
+      showError(err.message);
+    }
+  });
+  lucide.createIcons();
+}
+
+loadMachines()
+  .then(() => (role === 'supervisor' ? setUpAdding() : null))
+  .catch((err) => showError(err.message));
+
+lucide.createIcons();
+</script>
+</body>
+</html>

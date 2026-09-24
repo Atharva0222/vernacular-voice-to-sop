@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import db
 from app.config import settings
-from app.routes import login, report, sop, structure, transcribe, tts
+from app.routes import login, machine, report, sop, structure, transcribe, tts
 
 
 @asynccontextmanager
@@ -29,6 +29,7 @@ app.include_router(transcribe.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(structure.router, prefix="/api")
 app.include_router(sop.router, prefix="/api")
+app.include_router(machine.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(login.router, prefix="/api")
 
@@ -38,5 +39,14 @@ def health():
     return {"status": "ok"}
 
 
+class _RevalidatingStatic(StaticFiles):
+    """Preview pages change often; without this browsers cache them heuristically and show a stale UI."""
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 _preview_dir = Path(__file__).resolve().parent.parent / "static_preview"
-app.mount("/preview", StaticFiles(directory=_preview_dir, html=True), name="preview")
+app.mount("/preview", _RevalidatingStatic(directory=_preview_dir, html=True), name="preview")

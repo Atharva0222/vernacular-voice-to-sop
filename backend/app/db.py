@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS reports (
     error TEXT,
     response_text TEXT,
     ack_audio_key TEXT,
+    answered_by_sop INTEGER NOT NULL DEFAULT 0,
     assigned_to INTEGER REFERENCES people(id),
     escalate_after TEXT,
     cluster_id INTEGER,
@@ -68,6 +69,8 @@ CREATE INDEX IF NOT EXISTS reports_escalate_after ON reports(escalate_after);
 CREATE INDEX IF NOT EXISTS reports_cluster_id ON reports(cluster_id);
 
 -- Escalation and cluster size are computed on read, so there is no scheduler that can stop.
+-- Questions the SOP itself answered never enter this view: they stay between the worker and
+-- their machine, so speaking up is never something a manager can see.
 CREATE VIEW IF NOT EXISTS report_view AS
 WITH base AS (
     SELECT r.*, m.id AS machine_id, l.id AS line_id, l.plant_id,
@@ -77,6 +80,7 @@ WITH base AS (
     JOIN sops s ON s.id = r.sop_id
     JOIN machines m ON m.id = s.machine_id
     JOIN lines l ON l.id = m.line_id
+    WHERE r.answered_by_sop = 0
 )
 SELECT base.*,
        CASE WHEN escalated

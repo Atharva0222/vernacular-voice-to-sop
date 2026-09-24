@@ -3,321 +3,69 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Vernacular Voice-to-SOP — Preview</title>
-<!-- Tailwind Play CDN: dynamically generated per-page, does not support SRI (documented Tailwind limitation) -->
-<script src="https://cdn.tailwindcss.com"></script>
+<title>Voice to SOP</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Mukta:wght@400;600;700&display=swap" rel="stylesheet" />
+<link href="ui.css" rel="stylesheet" />
 <script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.js"
   integrity="sha384-WBRt9V/J/erVtkEuP91HUFRv9MvHzFiFOp4/zTDp4xkcMG7aOeIv2asTV4yxFLWa"
   crossorigin="anonymous"></script>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-  .pulse-dot { animation: pulse 1.2s infinite; }
-  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .door {
+    display: flex; align-items: center; gap: 20px; text-decoration: none; color: inherit;
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 5px;
+    padding: 22px; margin-bottom: 14px; border-left: 6px solid var(--rule);
+  }
+  .door:hover { border-left-color: var(--required); }
+  .door .icon { flex: 0 0 auto; width: 54px; height: 54px; display: grid; place-items: center;
+    border-radius: 50%; background: var(--paper); color: var(--ink); }
+  .door h2 { margin: 0; font-size: 22px; font-weight: 700; }
+  .door p { margin: 3px 0 0; color: var(--ink-soft); font-size: 15px; max-width: 46ch; }
+
+  .door.floor { padding: 30px 26px; border-left-color: var(--stop); }
+  .door.floor .icon { width: 76px; height: 76px; background: var(--stop); color: #fff;
+    box-shadow: 0 4px 0 #8e1d1d; }
+  .door.floor h2 { font-family: Mukta, system-ui, sans-serif; font-size: 32px; }
+  .door.floor p { font-family: Mukta, system-ui, sans-serif; font-size: 19px; color: var(--ink); }
+
+  .masthead { margin-bottom: 30px; }
+  .masthead h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
+  .masthead p { margin: 6px 0 0; color: var(--ink-soft); max-width: 58ch; }
 </style>
 </head>
-<body class="bg-slate-100 min-h-screen">
-  <div class="max-w-3xl mx-auto px-4 py-10">
-    <header class="mb-8">
-      <h1 class="text-2xl font-bold text-slate-800">Vernacular Voice-to-SOP</h1>
-      <p class="text-slate-500 text-sm mt-1">Record or upload a factory manager's spoken procedure (Hindi/Marathi) → get a structured, illustrated SOP.</p>
+<body>
+  <div class="wrap">
+    <header class="masthead">
+      <h1>Voice to SOP</h1>
+      <p>A supervisor speaks the procedure. The machine shows it as cards a worker can hear, and
+         hears the worker back.</p>
     </header>
 
-    <section class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8">
-      <div class="flex flex-wrap items-center gap-3 mb-4">
-        <label class="text-sm font-medium text-slate-600">Language</label>
-        <select id="lang" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
-          <option value="auto">Auto-detect</option>
-          <option value="hi">Hindi</option>
-          <option value="mr">Marathi</option>
-        </select>
-      </div>
+    <a class="door floor" href="machines.html?role=worker">
+      <span class="icon"><i data-lucide="mic" style="width:34px;height:34px"></i></span>
+      <span>
+        <h2 lang="hi">कामगार</h2>
+        <p lang="hi">अपनी मशीन के कार्ड देखें और सुनें। कुछ कहना हो तो बोलें।</p>
+      </span>
+    </a>
 
-      <div class="flex flex-wrap gap-3 items-center">
-        <button id="recordBtn" class="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
-          <i data-lucide="mic" class="w-4 h-4"></i>
-          <span id="recordLabel">Record</span>
-        </button>
+    <a class="door" href="machines.html?role=supervisor">
+      <span class="icon"><i data-lucide="clipboard-list"></i></span>
+      <span>
+        <h2>Supervisor</h2>
+        <p>Add a machine, or speak its procedure to turn into cards.</p>
+      </span>
+    </a>
 
-        <span class="text-slate-400 text-sm">or</span>
-
-        <label class="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-300 px-4 py-2 rounded-lg text-sm font-medium cursor-pointer transition">
-          <i data-lucide="upload" class="w-4 h-4"></i>
-          Upload audio
-          <input id="fileInput" type="file" accept="audio/*" class="hidden" />
-        </label>
-
-        <span id="audioStatus" class="text-sm text-slate-500"></span>
-      </div>
-
-      <div class="mt-5">
-        <button id="generateBtn" disabled class="w-full bg-indigo-600 disabled:bg-slate-300 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2">
-          <i data-lucide="wand-2" class="w-4 h-4"></i>
-          Generate SOP
-        </button>
-      </div>
-
-      <div id="pipelineStatus" class="mt-4 text-sm text-slate-500 hidden"></div>
-      <div id="errorBox" class="mt-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 hidden"></div>
-    </section>
-
-    <section id="transcriptSection" class="bg-white rounded-xl shadow-sm border border-slate-200 p-6 mb-8 hidden">
-      <h2 class="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-2">Raw transcript <span id="detectedLangBadge" class="ml-2 text-xs font-normal normal-case bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full"></span></h2>
-      <p id="transcriptText" class="text-slate-800 leading-relaxed" dir="auto"></p>
-    </section>
-
-    <section id="cardsSection" class="space-y-3"></section>
+    <a class="door" href="inbox.html">
+      <span class="icon"><i data-lucide="inbox"></i></span>
+      <span>
+        <h2>Manager</h2>
+        <p>Read what workers reported, reply by voice, approve card changes.</p>
+      </span>
+    </a>
   </div>
-
-<script>
-const API_BASE = window.location.origin;
-
-const ICON_MAP = {
-  wear_gloves: 'hand', gloves: 'hand',
-  cut: 'scissors', sharp: 'scissors',
-  heat: 'flame', hot: 'flame',
-  check: 'check-circle-2', inspect: 'search',
-  power_off: 'power', power_on: 'power', power: 'power',
-  electrical: 'zap', electricity: 'zap',
-  chemical: 'flask-conical', chemicals: 'flask-conical',
-  moving_parts: 'cog', machine: 'cog',
-  wash_hands: 'droplets', water: 'droplets', clean: 'sparkles',
-  measure: 'ruler', mix: 'blend', pour: 'droplet',
-  wear_mask: 'shield', ppe: 'shield',
-  warning: 'alert-triangle', careful: 'alert-triangle',
-};
-
-function iconFor(step) {
-  const key = (step.icon || '').trim().toLowerCase();
-  if (ICON_MAP[key]) return ICON_MAP[key];
-  return step.is_safety_warning ? 'alert-triangle' : 'circle-dot';
-}
-
-let recordedBlob = null;
-let mediaRecorder = null;
-let chunks = [];
-let isRecording = false;
-
-const recordBtn = document.getElementById('recordBtn');
-const recordLabel = document.getElementById('recordLabel');
-const fileInput = document.getElementById('fileInput');
-const generateBtn = document.getElementById('generateBtn');
-const audioStatus = document.getElementById('audioStatus');
-const pipelineStatus = document.getElementById('pipelineStatus');
-const errorBox = document.getElementById('errorBox');
-const transcriptSection = document.getElementById('transcriptSection');
-const transcriptText = document.getElementById('transcriptText');
-const detectedLangBadge = document.getElementById('detectedLangBadge');
-const cardsSection = document.getElementById('cardsSection');
-
-function setAudio(blob, label) {
-  recordedBlob = blob;
-  audioStatus.textContent = label;
-  generateBtn.disabled = false;
-}
-
-recordBtn.addEventListener('click', async () => {
-  if (!isRecording) {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      chunks = [];
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
-      mediaRecorder.onstop = () => {
-        const blob = new Blob(chunks, { type: 'audio/webm' });
-        setAudio(blob, `Recorded clip (${(blob.size / 1024).toFixed(0)} KB)`);
-        stream.getTracks().forEach((t) => t.stop());
-      };
-      mediaRecorder.start();
-      isRecording = true;
-      recordLabel.textContent = 'Stop';
-      recordBtn.classList.add('bg-red-600', 'hover:bg-red-700');
-      recordBtn.classList.remove('bg-slate-800', 'hover:bg-slate-900');
-    } catch (err) {
-      showError('Mic access denied or unavailable: ' + err.message);
-    }
-  } else {
-    mediaRecorder.stop();
-    isRecording = false;
-    recordLabel.textContent = 'Record';
-    recordBtn.classList.remove('bg-red-600', 'hover:bg-red-700');
-    recordBtn.classList.add('bg-slate-800', 'hover:bg-slate-900');
-  }
-});
-
-fileInput.addEventListener('change', () => {
-  const file = fileInput.files[0];
-  if (file) setAudio(file, `Selected: ${file.name}`);
-});
-
-function showError(msg) {
-  errorBox.textContent = msg;
-  errorBox.classList.remove('hidden');
-}
-function clearError() {
-  errorBox.classList.add('hidden');
-}
-function setStage(msg) {
-  pipelineStatus.classList.remove('hidden');
-  pipelineStatus.innerHTML = `<span class="pulse-dot">●</span> ${msg}`;
-}
-
-generateBtn.addEventListener('click', async () => {
-  if (!recordedBlob) return;
-  clearError();
-  cardsSection.innerHTML = '';
-  transcriptSection.classList.add('hidden');
-  generateBtn.disabled = true;
-
-  try {
-    setStage('Stage 1/3 — Transcribing audio...');
-    const lang = document.getElementById('lang').value;
-    const form = new FormData();
-    form.append('audio', recordedBlob, 'clip.webm');
-    form.append('language', lang);
-
-    const trRes = await fetch(`${API_BASE}/api/transcribe`, { method: 'POST', body: form });
-    if (!trRes.ok) throw new Error(`Transcribe failed: ${await trRes.text()}`);
-    const { transcript, detected_language } = await trRes.json();
-
-    transcriptText.textContent = transcript;
-    detectedLangBadge.textContent = detected_language.toUpperCase();
-    transcriptSection.classList.remove('hidden');
-
-    setStage('Stage 2/3 — Structuring into SOP steps (LLM)...');
-    const stRes = await fetch(`${API_BASE}/api/structure`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transcript, language: detected_language }),
-    });
-    if (!stRes.ok) throw new Error(`Structuring failed: ${await stRes.text()}`);
-    const { steps } = await stRes.json();
-
-    setStage('Saving SOP...');
-    const saveRes = await fetch(`${API_BASE}/api/sop`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ machine_id: 1, title: steps[0]?.text.slice(0, 60) || 'SOP', language: detected_language, transcript, steps }),
-    });
-    if (!saveRes.ok) throw new Error(`Saving SOP failed: ${await saveRes.text()}`);
-    const sop = await saveRes.json();
-    history.replaceState(null, '', `?machine=${sop.machine_id}`);
-
-    await showSop(sop);
-  } catch (err) {
-    pipelineStatus.classList.add('hidden');
-    showError(err.message);
-  } finally {
-    generateBtn.disabled = false;
-  }
-});
-
-const HEARD = { hi: 'सुन लिया गया', mr: 'ऐकले गेले' };
-const REPLY_POLL_MS = 15000;
-
-async function showSop(sop) {
-  setStage(`Generating audio for ${sop.steps.length} step(s)...`);
-  const steps = [];
-  for (const step of sop.steps) {
-    const ttsRes = await fetch(`${API_BASE}/api/tts`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: step.text, language: sop.language }),
-    });
-    steps.push({ ...step, audio_url: ttsRes.ok ? (await ttsRes.json()).audio_url : null });
-  }
-  pipelineStatus.classList.add('hidden');
-  renderCards(sop, steps);
-}
-
-function renderCards(sop, steps) {
-  cardsSection.innerHTML = '';
-  for (const step of steps) {
-    const warn = step.is_safety_warning;
-    const card = document.createElement('div');
-    card.className = `bg-white rounded-xl shadow-sm border-2 p-4 flex items-start gap-4 ${warn ? 'border-orange-400 bg-orange-50' : 'border-slate-200'}`;
-    card.innerHTML = `
-      <div class="flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm ${warn ? 'bg-orange-500 text-white' : 'bg-indigo-100 text-indigo-700'}">
-        ${step.step_number}
-      </div>
-      <div class="flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center ${warn ? 'bg-orange-100 text-orange-600' : 'bg-slate-100 text-slate-500'}">
-        <i data-lucide="${iconFor(step)}" class="w-5 h-5"></i>
-      </div>
-      <div class="flex-1 min-w-0">
-        <p class="text-slate-800 leading-snug" dir="auto">${step.text}</p>
-        ${warn ? '<span class="inline-flex items-center gap-1 text-xs font-medium text-orange-700 mt-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Safety warning</span>' : ''}
-        <p class="report-status text-sm text-emerald-700 mt-1 hidden" dir="auto"></p>
-      </div>
-      <div class="flex-shrink-0 flex gap-2">
-        ${step.audio_url ? `<button data-src="${step.audio_url}" class="play-btn w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center transition"><i data-lucide="play" class="w-4 h-4"></i></button>` : ''}
-        <button class="reply-btn w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition hidden" title="Manager reply"><i data-lucide="message-circle" class="w-4 h-4"></i></button>
-        <button class="mic-btn w-9 h-9 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition select-none touch-none" title="Hold to report a problem"><i data-lucide="mic" class="w-4 h-4"></i></button>
-      </div>
-    `;
-    cardsSection.appendChild(card);
-    wireReport(card, sop, step);
-  }
-  lucide.createIcons();
-
-  document.querySelectorAll('.play-btn').forEach((btn) => {
-    btn.addEventListener('click', () => new Audio(API_BASE + btn.dataset.src).play());
-  });
-}
-
-/** Hold the mic to record, release to send. Confirms on upload; the ~minute-long triage runs server-side. */
-function wireReport(card, sop, step) {
-  const mic = card.querySelector('.mic-btn');
-  const status = card.querySelector('.report-status');
-  let recorder = null;
-  let held = false;
-
-  mic.addEventListener('pointerdown', async () => {
-    held = true;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    if (!held) return stream.getTracks().forEach((t) => t.stop());
-    const parts = [];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = (e) => parts.push(e.data);
-    recorder.onstop = async () => {
-      stream.getTracks().forEach((t) => t.stop());
-      mic.classList.remove('pulse-dot');
-      const form = new FormData();
-      form.append('audio', new Blob(parts, { type: 'audio/webm' }), 'report.webm');
-      form.append('sop_id', sop.id);
-      form.append('step_id', step.id);
-      form.append('language', sop.language);
-      const res = await fetch(`${API_BASE}/api/report`, { method: 'POST', body: form });
-      if (!res.ok) return showError(`Report failed: ${await res.text()}`);
-      status.textContent = `${HEARD[sop.language]} ✓`;
-      status.classList.remove('hidden');
-      pollForReply(card, (await res.json()).receipt);
-    };
-    recorder.start();
-    mic.classList.add('pulse-dot');
-  });
-  const stop = () => { held = false; if (recorder?.state === 'recording') recorder.stop(); };
-  mic.addEventListener('pointerup', stop);
-  mic.addEventListener('pointerleave', stop);
-}
-
-async function pollForReply(card, receipt) {
-  const report = await (await fetch(`${API_BASE}/api/receipt/${receipt}`)).json();
-  if (report.status === 'failed') return;
-  if (!report.ack_audio_key) return setTimeout(() => pollForReply(card, receipt), REPLY_POLL_MS);
-  const btn = card.querySelector('.reply-btn');
-  btn.classList.remove('hidden');
-  btn.onclick = () => new Audio(`${API_BASE}/api/audio/${report.ack_audio_key}`).play();
-}
-
-const params = new URLSearchParams(location.search);
-const sopUrl = params.get('machine') ? `/api/machine/${params.get('machine')}/sop` : params.get('sop') && `/api/sop/${params.get('sop')}`;
-if (sopUrl) {
-  fetch(API_BASE + sopUrl)
-    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('SOP not found'))))
-    .then(showSop)
-    .catch((err) => { pipelineStatus.classList.add('hidden'); showError(err.message); });
-}
-
-lucide.createIcons();
-</script>
+<script>lucide.createIcons();</script>
 </body>
 </html>

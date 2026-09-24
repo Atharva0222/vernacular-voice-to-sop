@@ -3,66 +3,118 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Worker Reports — Inbox</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }</style>
+<title>Worker reports</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Mukta:wght@400;600;700&display=swap" rel="stylesheet" />
+<link href="ui.css" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.js"
+  integrity="sha384-WBRt9V/J/erVtkEuP91HUFRv9MvHzFiFOp4/zTDp4xkcMG7aOeIv2asTV4yxFLWa"
+  crossorigin="anonymous"></script>
+<style>
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 18px; }
+  .toolbar .spacer { flex: 1; }
+
+  /* A report is a ticket: a coloured rail says what kind of problem it is. */
+  .ticket {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 5px;
+    border-left: 6px solid var(--ink-soft); padding: 16px 18px; margin-bottom: 12px;
+  }
+  .ticket.machine { border-left-color: var(--required); }
+  .ticket.sop { border-left-color: #6b4fa8; }
+  .ticket.understanding { border-left-color: var(--caution); }
+  .ticket .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+  .ticket .said { margin: 0; font-family: Mukta, system-ui, sans-serif; font-size: 19px; line-height: 1.45; }
+  .ticket .meta { margin-left: auto; color: var(--ink-soft); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .ticket .aside {
+    margin: 10px 0 0; padding: 10px 12px; border-left: 3px solid var(--rule);
+    background: var(--paper); font-family: Mukta, system-ui, sans-serif; font-size: 17px;
+  }
+  .ticket .aside b { font-family: Archivo, system-ui, sans-serif; font-size: 13px; font-weight: 600;
+    color: var(--ink-soft); display: block; }
+  .ticket .reply-row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+
+  .plate.hot { background: var(--stop); border-color: var(--stop); color: #fff; }
+  .plate.esc { border-color: var(--stop); color: var(--stop); }
+
+  /* A proposed card change is the one thing that should stop a manager scrolling. */
+  .change { border: 2px solid var(--ink); border-radius: 5px; background: var(--surface);
+    padding: 18px; margin-bottom: 12px; }
+  .change h2 { margin: 0 0 12px; font-size: 16px; font-weight: 600; }
+  .change .was, .change .now {
+    font-family: Mukta, system-ui, sans-serif; font-size: 18px; padding: 10px 12px; border-radius: 4px;
+  }
+  .change .was { background: #fdf2f2; color: #8e1d1d; text-decoration: line-through; }
+  .change .now { background: #f0f8f3; color: #12523a; margin-top: 6px; }
+  .change .btn.ok { background: var(--safe); border-color: var(--safe); }
+  .change .btn.ok:hover { background: #12603a; border-color: #12603a; }
+</style>
 </head>
-<body class="bg-slate-100 min-h-screen">
-  <div class="max-w-3xl mx-auto px-4 py-10">
-    <header class="mb-6 flex flex-wrap items-end justify-between gap-3">
-      <div>
-        <h1 class="text-2xl font-bold text-slate-800">Worker Reports</h1>
-        <p class="text-slate-500 text-sm mt-1">Anonymous voice reports from the line, triaged against the SOP.</p>
-      </div>
-      <div class="flex gap-2">
-        <select id="statusFilter" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
-          <option value="">All statuses</option>
-          <option value="open">Open</option>
-          <option value="acknowledged">Acknowledged</option>
-          <option value="resolved">Resolved</option>
-          <option value="received">Processing</option>
-          <option value="failed">Failed</option>
-        </select>
-        <select id="kindFilter" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
-          <option value="">All kinds</option>
-          <option value="machine">Machine</option>
-          <option value="sop">SOP card</option>
-          <option value="understanding">Training</option>
-        </select>
-      </div>
+<body>
+  <div class="wrap wide">
+    <a class="back" href="index.html"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Home</a>
+
+    <header class="head">
+      <h1>Worker reports</h1>
+      <p>What the cards could not answer, in the words of the people running your lines. No
+         names are attached, and the recordings are gone.</p>
     </header>
-    <form id="loginForm" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex flex-wrap gap-2 items-center hidden">
-      <input id="personId" type="number" min="1" required placeholder="Your person id" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-36" />
-      <input id="secret" type="password" required placeholder="Server secret" class="flex-1 min-w-0 border border-slate-300 rounded-lg px-3 py-1.5 text-sm" />
-      <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Sign in</button>
+
+    <div class="toolbar">
+      <select id="statusFilter" class="field">
+        <option value="">Any status</option>
+        <option value="open">Open</option>
+        <option value="acknowledged">Acknowledged</option>
+        <option value="resolved">Resolved</option>
+        <option value="received">Still processing</option>
+        <option value="failed">Failed</option>
+      </select>
+      <select id="kindFilter" class="field">
+        <option value="">Any kind</option>
+        <option value="machine">Machine fault</option>
+        <option value="sop">Card is wrong</option>
+        <option value="understanding">Needs training</option>
+      </select>
+      <span class="spacer"></span>
+      <span id="whoami" class="plate hidden"></span>
+    </div>
+
+    <form id="loginForm" class="block hidden">
+      <h2>Sign in to read reports</h2>
+      <div class="row">
+        <input id="personId" type="number" min="1" required placeholder="Your person id" class="field" style="width:150px" />
+        <input id="secret" type="password" required placeholder="Server secret" class="field grow" />
+        <button class="btn">Sign in</button>
+      </div>
     </form>
-    <p id="whoami" class="text-sm text-slate-500 mb-4 hidden"></p>
-    <div id="errorBox" class="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 hidden"></div>
-    <section id="edits" class="space-y-3 mb-6"></section>
-    <section id="list" class="space-y-3"></section>
+
+    <div id="errorBox" class="alert hidden"></div>
+    <section id="edits"></section>
+    <section id="list"></section>
   </div>
 
+<script src="app.js"></script>
 <script>
-const API_BASE = window.location.origin;
-const KIND = {
-  machine: ['Machine', 'bg-sky-100 text-sky-800'],
-  sop: ['SOP card', 'bg-violet-100 text-violet-800'],
-  understanding: ['Training', 'bg-amber-100 text-amber-800'],
-};
-const SEVERITY = { high: 'bg-red-600 text-white', medium: 'bg-orange-200 text-orange-900', low: 'bg-slate-200 text-slate-700' };
+const KIND = { machine: 'Machine fault', sop: 'Card is wrong', understanding: 'Needs training' };
+const STATUS = { open: 'Open', acknowledged: 'Acknowledged', resolved: 'Resolved',
+                 received: 'Still processing', failed: 'Failed' };
 
 const TOKEN_KEY = 'inboxToken';
 const list = document.getElementById('list');
 const edits = document.getElementById('edits');
 const loginForm = document.getElementById('loginForm');
 const whoami = document.getElementById('whoami');
+const errorBox = document.getElementById('errorBox');
 
 function token() {
   try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
 }
-
 function authHeaders() {
   return { Authorization: `Bearer ${token()}` };
+}
+function showError(msg) {
+  errorBox.textContent = msg;
+  errorBox.classList.remove('hidden');
 }
 
 function showLogin(msg) {
@@ -79,21 +131,21 @@ loginForm.addEventListener('submit', async (e) => {
   const res = await fetch(`${API_BASE}/api/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ person_id: Number(document.getElementById('personId').value), secret: document.getElementById('secret').value }),
+    body: JSON.stringify({ person_id: Number(document.getElementById('personId').value),
+                           secret: document.getElementById('secret').value }),
   });
   if (!res.ok) return showError(`Sign-in failed: ${await res.text()}`);
   const { token: t, name, role } = await res.json();
   try { sessionStorage.setItem(TOKEN_KEY, t); } catch {}
   errorBox.classList.add('hidden');
   loginForm.classList.add('hidden');
-  whoami.textContent = `Signed in as ${name} (${role.replace('_', ' ')})`;
+  whoami.textContent = `${name}, ${role.replace('_', ' ')}`;
   whoami.classList.remove('hidden');
   load();
 });
-const errorBox = document.getElementById('errorBox');
 
-function badge(text, cls) {
-  return `<span class="text-xs font-medium px-2 py-0.5 rounded-full ${cls}">${text}</span>`;
+function plate(text, kind) {
+  return `<span class="plate${kind ? ' ' + kind : ''}">${text}</span>`;
 }
 
 function escapeHtml(text) {
@@ -103,30 +155,33 @@ function escapeHtml(text) {
 }
 
 function renderReport(r) {
-  const card = document.createElement('div');
-  card.className = 'bg-white rounded-xl shadow-sm border border-slate-200 p-4';
+  const card = document.createElement('article');
+  card.className = `ticket ${r.kind || ''}`;
   const pending = r.status === 'received' || r.status === 'failed';
+  const when = new Date(r.created_at).toLocaleString(undefined,
+    { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
   card.innerHTML = `
-    <div class="flex flex-wrap items-center gap-2 mb-2">
-      ${r.kind ? badge(...KIND[r.kind]) : ''}
-      ${r.severity ? badge(r.severity, SEVERITY[r.severity]) : ''}
-      ${badge(r.status, 'bg-slate-100 text-slate-600')}
-      ${r.escalated ? badge('Escalated to plant head', 'bg-red-100 text-red-800') : ''}
-      ${r.cluster_size > 1 ? badge(`${r.confirmed ? 'Confirmed' : 'Repeated'} ×${r.cluster_size}`, r.confirmed ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800') : ''}
-      <span class="text-xs text-slate-400 ml-auto">#${r.id} · SOP ${r.sop_id}${r.step_id ? ` · step ${r.step_id}` : ''} · ${new Date(r.created_at).toLocaleString()}</span>
+    <div class="top">
+      ${r.kind ? plate(KIND[r.kind], 'filled') : ''}
+      ${r.severity === 'high' ? plate('Risk of injury', 'hot') : ''}
+      ${plate(STATUS[r.status] || r.status)}
+      ${r.escalated ? plate('Now with the plant head', 'esc') : ''}
+      ${r.cluster_size > 1 ? plate(`${r.confirmed ? 'Confirmed by' : 'Said by'} ${r.cluster_size} workers`, r.confirmed ? 'hot' : '') : ''}
+      <span class="meta">${when}, report ${r.id}</span>
     </div>
-    <p class="text-slate-800 leading-snug" dir="auto">${escapeHtml(r.summary || (r.status === 'failed' ? `Processing failed: ${r.error}` : 'Processing voice report...'))}</p>
-    ${r.suggested_change ? `<p class="text-sm text-violet-800 bg-violet-50 rounded-lg p-2 mt-2" dir="auto">Suggested card text: ${escapeHtml(r.suggested_change)}</p>` : ''}
-    ${r.response_text ? `<p class="text-sm text-emerald-800 mt-2" dir="auto">Your reply: ${escapeHtml(r.response_text)}</p>` : ''}
+    <p class="said" dir="auto">${escapeHtml(r.summary || (r.status === 'failed'
+      ? `Could not be processed: ${r.error}` : 'Being transcribed and sorted...'))}</p>
+    ${r.suggested_change ? `<p class="aside" dir="auto"><b>Suggested card text</b>${escapeHtml(r.suggested_change)}</p>` : ''}
+    ${r.response_text ? `<p class="aside" dir="auto"><b>You replied</b>${escapeHtml(r.response_text)}</p>` : ''}
     ${pending ? '' : `
-    <div class="flex flex-wrap gap-2 mt-3">
-      <input class="reply flex-1 min-w-0 border border-slate-300 rounded-lg px-3 py-1.5 text-sm" dir="auto" placeholder="Reply to the worker (spoken back in ${r.language === 'mr' ? 'Marathi' : 'Hindi'})" />
-      <select class="status border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
-        ${['open', 'acknowledged', 'resolved'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}
+    <div class="reply-row">
+      <input class="reply field grow" dir="auto" placeholder="Reply to the worker, spoken back in ${r.language === 'mr' ? 'Marathi' : 'Hindi'}" />
+      <select class="status field">
+        ${['open', 'acknowledged', 'resolved'].map((s) => `<option value="${s}" ${s === r.status ? 'selected' : ''}>${STATUS[s]}</option>`).join('')}
       </select>
-      <button class="send bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Send</button>
-    </div>`}
-  `;
+      <button class="send btn">Send reply</button>
+    </div>`}`;
+
   card.querySelector('.send')?.addEventListener('click', async () => {
     const reply = card.querySelector('.reply').value.trim();
     const body = { status: card.querySelector('.status').value, ...(reply && { response_text: reply }) };
@@ -135,35 +190,31 @@ function renderReport(r) {
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
     });
-    if (!res.ok) return showError(`Update failed: ${await res.text()}`);
+    if (!res.ok) return showError(`Sending the reply failed: ${await res.text()}`);
     load();
   });
   return card;
 }
 
 function renderEdit(e) {
-  const card = document.createElement('div');
-  card.className = 'bg-violet-50 rounded-xl border-2 border-violet-300 p-4';
+  const card = document.createElement('article');
+  card.className = 'change';
+  const who = e.report_count === 1 ? 'A worker says' : `${e.report_count} workers say`;
   card.innerHTML = `
-    <p class="text-sm font-semibold text-violet-900 mb-2">Card change proposed by ${e.report_count} worker reports · machine ${e.machine_id}, step ${e.step_number}</p>
-    <p class="text-sm text-red-800 bg-red-50 rounded-lg p-2 line-through" dir="auto">${escapeHtml(e.old_text)}</p>
-    <p class="text-sm text-emerald-900 bg-emerald-50 rounded-lg p-2 mt-1" dir="auto">${escapeHtml(e.new_text)}</p>
-    <div class="flex gap-2 mt-3">
-      <button data-action="approve" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Approve</button>
-      <button data-action="reject" class="bg-white border border-slate-300 hover:bg-slate-50 px-4 py-1.5 rounded-lg text-sm font-medium">Reject</button>
-    </div>
-  `;
+    <h2>${who} step ${e.step_number} on machine ${e.machine_id} is wrong</h2>
+    <p class="was" dir="auto">${escapeHtml(e.old_text)}</p>
+    <p class="now" dir="auto">${escapeHtml(e.new_text)}</p>
+    <div class="row tight" style="margin-top:14px">
+      <button data-action="approve" class="btn ok">Change the card</button>
+      <button data-action="reject" class="btn quiet">Keep it as it is</button>
+    </div>`;
   card.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', async () => {
-    const res = await fetch(`${API_BASE}/api/step-edit/${e.id}/${btn.dataset.action}`, { method: 'POST', headers: authHeaders() });
-    if (!res.ok) return showError(`${btn.dataset.action} failed: ${await res.text()}`);
+    const res = await fetch(`${API_BASE}/api/step-edit/${e.id}/${btn.dataset.action}`,
+                            { method: 'POST', headers: authHeaders() });
+    if (!res.ok) return showError(`That did not go through: ${await res.text()}`);
     load();
   }));
   return card;
-}
-
-function showError(msg) {
-  errorBox.textContent = msg;
-  errorBox.classList.remove('hidden');
 }
 
 async function load() {
@@ -173,19 +224,30 @@ async function load() {
   if (status) params.set('status', status);
   if (kind) params.set('kind', kind);
   if (!token()) return showLogin();
+
   const res = await fetch(`${API_BASE}/api/reports?${params}`, { headers: authHeaders() });
-  if (res.status === 401 || res.status === 403) return showLogin(res.status === 403 ? 'Supervisors cannot view worker reports.' : 'Please sign in again.');
+  if (res.status === 401 || res.status === 403) {
+    return showLogin(res.status === 403
+      ? 'Supervisors cannot read worker reports. Sign in as a manager.'
+      : 'That session has ended. Sign in again.');
+  }
   if (!res.ok) return showError(`Loading reports failed: ${await res.text()}`);
+
   const reports = await res.json();
   const editsRes = await fetch(`${API_BASE}/api/step-edits`, { headers: authHeaders() });
   if (editsRes.ok) edits.replaceChildren(...(await editsRes.json()).map(renderEdit));
   list.replaceChildren(...reports.map(renderReport));
-  if (!reports.length) list.innerHTML = '<p class="text-slate-500 text-sm">No reports.</p>';
+  if (!reports.length) {
+    list.innerHTML = '<div class="block empty"><p>Nothing waiting for you.</p>'
+      + '<p class="sub">Reports appear here when a worker speaks about something the cards do not cover.</p></div>';
+  }
+  lucide.createIcons();
 }
 
 document.getElementById('statusFilter').addEventListener('change', load);
 document.getElementById('kindFilter').addEventListener('change', load);
 load();
+lucide.createIcons();
 </script>
 </body>
 </html>

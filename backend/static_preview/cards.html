@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>काम के कार्ड</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Mukta:wght@400;600;700&display=swap" rel="stylesheet" />
+<link href="ui.css" rel="stylesheet" />
+<script src="https://unpkg.com/lucide@0.462.0/dist/umd/lucide.js"
+  integrity="sha384-WBRt9V/J/erVtkEuP91HUFRv9MvHzFiFOp4/zTDp4xkcMG7aOeIv2asTV4yxFLWa"
+  crossorigin="anonymous"></script>
+</head>
+<body class="worker">
+  <div class="wrap" style="padding-bottom:150px">
+    <a class="back" href="machines.html?role=worker"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> मशीनें</a>
+
+    <header class="head">
+      <h1 id="machineName">&nbsp;</h1>
+      <div class="plates" id="machinePlates"></div>
+    </header>
+
+    <p id="status" class="note"><span class="dot">●</span> कार्ड आ रहे हैं...</p>
+    <div id="empty" class="block empty hidden">
+      <p>इस मशीन के लिए अभी कोई कार्ड नहीं है।</p>
+      <p class="sub">अपने सुपरवाइज़र से कहें कि वे इसका तरीका रिकॉर्ड करें।</p>
+      <p style="margin-top:14px"><a href="machines.html?role=worker">दूसरी मशीन चुनें</a></p>
+    </div>
+    <p id="errorBox" class="alert hidden"></p>
+    <section id="cardsSection" class="steps"></section>
+  </div>
+
+  <!-- One speak control for the whole machine: the SOP answers if it can, a manager if it cannot. -->
+  <div id="speakBar" class="panel hidden">
+    <div class="inner">
+      <button id="speakBtn" class="mic" title="बोलने के लिए दबाकर रखें" aria-label="बोलने के लिए दबाकर रखें">
+        <i data-lucide="mic" style="width:36px;height:36px"></i>
+      </button>
+      <div class="say">
+        <strong id="speakLabel">बोलने के लिए दबाकर रखें</strong>
+        <span id="speakHint" dir="auto">जो गड़बड़ है वह बताएं, या मशीन के बारे में पूछें।</span>
+      </div>
+      <button id="answerBtn" class="answer" title="जवाब सुनें" aria-label="जवाब सुनें">
+        <i data-lucide="volume-2" style="width:28px;height:28px"></i>
+      </button>
+    </div>
+  </div>
+
+<script src="app.js"></script>
+<script>
+const POLL_MS = 10000;
+
+/** The worker's page speaks only Hindi, whatever language the cards themselves are in. */
+const WORDS = {
+  loading: (n) => `${n} कार्ड की आवाज़ तैयार हो रही है...`,
+  safety: 'सुरक्षा चेतावनी',
+  hold: 'बोलने के लिए दबाकर रखें',
+  listening: 'सुन रहे हैं...',
+  heard: 'सुन लिया गया ✓ कार्ड से मिलाया जा रहा है...',
+  fromSop: 'कार्ड में इसका जवाब है — सुनने के लिए दबाएं',
+  toManager: 'मैनेजर को भेज दिया गया है',
+  reply: 'मैनेजर का जवाब आया है — सुनने के लिए दबाएं',
+  unclear: 'आवाज़ समझ नहीं आई। कृपया फिर से बोलें।',
+  noMachine: 'कोई मशीन नहीं चुनी गई। पीछे जाकर मशीन चुनें।',
+};
+
+const machineId = param('machine');
+const statusLine = document.getElementById('status');
+const errorBox = document.getElementById('errorBox');
+const cardsSection = document.getElementById('cardsSection');
+const speakBar = document.getElementById('speakBar');
+const speakBtn = document.getElementById('speakBtn');
+const speakLabel = document.getElementById('speakLabel');
+const speakHint = document.getElementById('speakHint');
+const answerBtn = document.getElementById('answerBtn');
+
+function showError(msg) {
+  errorBox.textContent = msg;
+  errorBox.classList.remove('hidden');
+}
+function setStage(msg) {
+  statusLine.classList.remove('hidden');
+  statusLine.innerHTML = `<span class="dot">●</span> ${msg}`;
+}
+
+/** One card per step: stamped number, icon, text, and a button that reads it aloud.
+    Safety steps carry the hazard band used on the machines themselves. */
+function renderCards(steps) {
+  cardsSection.innerHTML = '';
+  for (const step of steps) {
+    const warn = step.is_safety_warning;
+    const card = document.createElement('article');
+    card.className = `step${warn ? ' warn' : ''}`;
+    card.innerHTML = `
+      <div class="no">${step.step_number}</div>
+      <div class="body">
+        <i class="glyph" data-lucide="${iconFor(step)}" style="width:26px;height:26px"></i>
+        <div class="grow">
+          <p class="text" dir="auto"></p>
+          ${warn ? `<span class="flag"><i data-lucide="alert-triangle" style="width:17px;height:17px"></i> ${WORDS.safety}</span>` : ''}
+        </div>
+      </div>
+      ${step.audio_url ? `<button class="listen" data-src="${step.audio_url}" aria-label="सुनें"><i data-lucide="play" style="width:22px;height:22px"></i></button>` : ''}`;
+    card.querySelector('.text').textContent = step.text;
+    cardsSection.appendChild(card);
+  }
+  lucide.createIcons();
+
+  document.querySelectorAll('.listen').forEach((btn) => {
+    btn.addEventListener('click', () => new Audio(API_BASE + btn.dataset.src).play());
+  });
+}
+
+function playAnswer(audioKey, message) {
+  const audio = new Audio(`${API_BASE}/api/audio/${audioKey}`);
+  speakHint.textContent = message;
+  answerBtn.classList.add('show');
+  answerBtn.onclick = () => audio.play();
+  audio.play().catch(() => {});  // some browsers need the tap; the button is there for that
+}
+
+/** Wait for the answer: the SOP's own, or word that a manager now has it. */
+async function pollAnswer(receipt) {
+  const report = await api(`/api/receipt/${receipt}`);
+  if (report.status === 'failed') {
+    speakHint.textContent = WORDS.unclear;
+    return;
+  }
+  if (report.status === 'received') return setTimeout(() => pollAnswer(receipt), POLL_MS);
+
+  if (report.answered_by_sop) {
+    if (report.ack_audio_key) playAnswer(report.ack_audio_key, WORDS.fromSop);
+    return;
+  }
+  if (report.ack_audio_key) return playAnswer(report.ack_audio_key, WORDS.reply);
+  speakHint.textContent = WORDS.toManager;
+  setTimeout(() => pollAnswer(receipt), POLL_MS);  // the manager may still reply
+}
+
+/** Hold to record, release to send. The worker is told they were heard straight away. */
+function wireSpeakButton(sop) {
+  let recorder = null;
+  let held = false;
+
+  speakBtn.addEventListener('pointerdown', async () => {
+    held = true;
+    answerBtn.classList.remove('show');
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!held) return stream.getTracks().forEach((t) => t.stop());
+    const parts = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => parts.push(e.data);
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      speakBtn.classList.remove('live', 'down');
+      speakLabel.textContent = WORDS.hold;
+
+      const form = new FormData();
+      form.append('audio', new Blob(parts, { type: 'audio/webm' }), 'question.webm');
+      form.append('sop_id', sop.id);
+      form.append('language', sop.language);
+      try {
+        const created = await api('/api/ask', { method: 'POST', body: form });
+        speakHint.textContent = WORDS.heard;
+        pollAnswer(created.receipt);
+      } catch (err) {
+        showError(err.message);
+      }
+    };
+    recorder.start();
+    speakBtn.classList.add('live', 'down');
+    speakLabel.textContent = WORDS.listening;
+  });
+
+  const stop = () => { held = false; if (recorder?.state === 'recording') recorder.stop(); };
+  speakBtn.addEventListener('pointerup', stop);
+  speakBtn.addEventListener('pointerleave', stop);
+  speakBar.classList.remove('hidden');
+}
+
+/** Voice each step, then draw the cards. */
+async function showSop(sop) {
+  setStage(WORDS.loading(sop.steps.length));
+  const steps = [];
+  for (const step of sop.steps) {
+    const res = await fetch(`${API_BASE}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: step.text, language: sop.language }),
+    });
+    steps.push({ ...step, audio_url: res.ok ? (await res.json()).audio_url : null });
+  }
+  statusLine.classList.add('hidden');
+  renderCards(steps);
+  wireSpeakButton(sop);
+}
+
+function plate(text, kind) {
+  const span = document.createElement('span');
+  span.className = `plate${kind ? ' ' + kind : ''}`;
+  span.textContent = text;
+  document.getElementById('machinePlates').appendChild(span);
+}
+
+async function load() {
+  if (!machineId) return showError(WORDS.noMachine);
+
+  const machine = await getMachine(machineId);
+  document.getElementById('machineName').textContent = machine.name;
+  plate(machine.line_name, 'filled');
+
+  if (!machine.sop_id) {
+    statusLine.classList.add('hidden');
+    return document.getElementById('empty').classList.remove('hidden');
+  }
+  await showSop(await api(`/api/machine/${machineId}/sop`));
+}
+
+load().catch((err) => {
+  statusLine.classList.add('hidden');
+  showError(err.message);
+});
+
+lucide.createIcons();
+</script>
+</body>
+</html>

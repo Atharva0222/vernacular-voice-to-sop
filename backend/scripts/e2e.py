@@ -127,6 +127,27 @@ def phase3_reports(sop: dict, headers: dict) -> dict:
     return reports
 
 
+def phase3b_ask(sop: dict, headers: dict) -> None:
+    """A question the SOP answers comes back as voice, and never reaches the manager."""
+    path = clip("c_understanding", COMPLAINTS["understanding"])
+    created = client.post(f"{API}/ask", data={"sop_id": sop["id"], "language": "hi"},
+                          files={"audio": (path.name, path.read_bytes(), "audio/mpeg")}).raise_for_status().json()
+    deadline = time.time() + 900
+    while time.time() < deadline:
+        seen = client.get(f"{API}/receipt/{created['receipt']}").json()
+        if seen["status"] != "received":
+            break
+        time.sleep(5)
+    check("phase 3b: the SOP answers a question about its own steps, out loud",
+          seen["answered_by_sop"] and bool(seen["ack_audio_key"]), str(seen))
+    audio = client.get(f"{API}/audio/{seen['ack_audio_key']}") if seen["ack_audio_key"] else None
+    check("phase 3b: that answer plays back",
+          audio is not None and audio.status_code == 200, f"status={audio.status_code if audio else 'none'}")
+    hidden = client.get(f"{API}/report/{created['report_id']}", headers=headers)
+    check("phase 3b: an answered question is invisible to the manager", hidden.status_code == 404,
+          f"status={hidden.status_code}")
+
+
 def phase4_reply(report: dict, headers: dict) -> None:
     """A manager's reply reaches the worker as playable audio in their language."""
     updated = client.patch(f"{API}/report/{report['id']}", headers=headers,
@@ -205,6 +226,7 @@ def main() -> None:
     phase0_transcribe()
     sop = phase1_sop()
     reports = phase3_reports(sop, headers)
+    phase3b_ask(sop, headers)
     phase4_reply(reports["machine"], headers)
     phase6_escalation(reports["machine"], headers)
     cluster = phase6_cluster(sop, headers)

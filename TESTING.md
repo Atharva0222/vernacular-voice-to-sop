@@ -4,7 +4,31 @@ A walk through the full loop, in order: a supervisor's spoken procedure becomes 
 worker speaks a complaint into a card, a manager sees it and replies, and the card fixes
 itself. About 30 minutes, most of it waiting for the speech models.
 
-Everything below is one terminal in `backend/` plus a browser.
+Everything below is one terminal in `backend/` plus a browser. One script,
+`backend/scripts/run_test.ps1`, does all the setup for you.
+
+## How to run it
+
+Open PowerShell in `backend/` and pick one:
+
+```powershell
+.\scripts\run_test.ps1 -Manual     # server up, you test it in the browser (this walkthrough)
+.\scripts\run_test.ps1             # no browser: runs every check for you, ~10 min
+```
+
+Then open <http://localhost:8001/preview/index.html> and choose a role. The pages are:
+
+| Page | Who it is for | What it does |
+|---|---|---|
+| `/preview/index.html` | everyone | Home. Choose Worker, Supervisor or Manager |
+| `/preview/machines.html?role=worker` | worker | Pick a machine, then read its cards |
+| `/preview/cards.html?machine=1` | worker | That machine's cards, plus one speak button to ask or report |
+| `/preview/machines.html?role=supervisor` | supervisor | Pick the machine you are recording for |
+| `/preview/create.html?machine=1` | supervisor | That machine's current cards, or record its first version |
+| `/preview/inbox.html` | manager | Reports, replies, and card changes to approve |
+
+Each machine keeps its own SOP, so cards are always read per machine. The worker's two pages
+are entirely in Hindi; the supervisor's and manager's pages are in English.
 
 ---
 
@@ -19,27 +43,22 @@ You need:
 - Patience: transcription runs on the CPU. A 10 second complaint takes a minute or two to
   come back. That is normal and the worker never waits for it.
 
-Two things about this machine specifically:
-
-- Downloads from Hugging Face need the certificate file, so put this in front of commands
-  that may download a model:
-  `$env:REQUESTS_CA_BUNDLE=".venv\windows-roots.pem"; $env:SSL_CERT_FILE=".venv\windows-roots.pem"`
-- Use a scratch database so you never mix test data into anything real.
+The script handles the two fiddly things about this machine itself: the certificate file
+Hugging Face downloads need, and a scratch database in `%TEMP%\v2s-test` so test data never
+mixes into anything real.
 
 ## 1. Start the server
 
 In PowerShell, from `backend/`:
 
 ```powershell
-$env:REQUESTS_CA_BUNDLE=".venv\windows-roots.pem"
-$env:SSL_CERT_FILE=".venv\windows-roots.pem"
-$env:V2S_DB_PATH="$env:TEMP\v2s-test\test.db"
-$env:V2S_TMP_DIR="$env:TEMP\v2s-test"
-.venv\Scripts\python.exe -m uvicorn app.main:app --port 8001
+.\scripts\run_test.ps1 -Manual
 ```
 
-Wait for `Application startup complete`, then open <http://localhost:8001/api/health> in the
-browser. You should see `{"status":"ok"}`.
+It prints `server healthy` and the two links. Leave this terminal running; Ctrl+C stops it.
+Add `-Fresh` to start from an empty database, or `-Port 8002` to use another port.
+
+Open <http://localhost:8001/api/health> in the browser. You should see `{"status":"ok"}`.
 
 The first run creates the database and fills it with a demo factory:
 
@@ -52,11 +71,21 @@ The first run creates the database and fills it with a demo factory:
 | Press 1 (machine on Line A) | 1 | |
 | Lathe 1 (machine on Line B) | 2 | |
 
-Leave this terminal running. Everything else happens elsewhere.
+Everything else happens in the browser.
 
 ## 2. Make the SOP cards (the supervisor's part)
 
-Open <http://localhost:8001/preview/index.html>.
+Open <http://localhost:8001/preview/index.html> — the home page. It asks who you are:
+**Worker**, **Supervisor** or **Manager**.
+
+Choose **Supervisor**, then pick **Press 1** from the machine list. Each machine has its own
+SOP, so the procedure you record belongs to the machine you picked. A machine that is not on
+the list yet is added there with **Add a machine** - name it, choose its line, and it opens
+ready to record.
+
+A machine that already has cards shows them instead of a recorder. Press 1 is empty on a fresh
+database, so you get the recorder straight away; come back later and you will see its cards
+with **Record a new version** underneath.
 
 1. Pick **Hindi** in the language box.
 2. Press **Record** and read this out loud, pausing a little between sentences:
@@ -66,36 +95,51 @@ Open <http://localhost:8001/preview/index.html>.
    > सत्रह नंबर का बोल्ट लगाकर प्लेट को कस दें।
    > काम खत्म होने के बाद मशीन को साफ करके रिपोर्ट लिखें।
 
-3. Press Record again to stop, then press **Generate SOP**.
+3. Press Record again to stop, then press **Make the cards**.
 
-**What should happen:** after a minute or two you get one numbered card per sentence, each with
-an icon, a speaker button, and a red mic button. The safety sentence should be marked
-*Safety warning*.
+**What should happen:** after a minute or two the page hands you over to Press 1's card page:
+one numbered card per sentence, each with an icon, a speaker button, and a red mic button. The
+safety sentence should be marked *Safety warning*. The raw transcript is not in your way - it
+is folded away under *What was heard* on the recording page.
 
 **The thing to actually check:** every sentence you spoke turned into a card. If only the first
 one shows up, the old transcription bug is back.
 
 Press a speaker button — the card should read itself back to you in Hindi.
 
-The page also saved this SOP against machine 1. From now on open it as:
+This SOP is saved against machine 1. The worker reaches the same cards from the home page by
+choosing **Worker** then **Press 1**, or directly at:
 
-<http://localhost:8001/preview/index.html?machine=1>
+<http://localhost:8001/preview/cards.html?machine=1>
 
-## 3. Speak a complaint into a card (the worker's part)
+## 3. Speak to the machine (the worker's part)
 
-On that same page, **press and hold** the red mic on the *पैडल* card, say this, and let go:
+The worker does not pick a card. At the bottom of the card page there is one red **speak**
+button. **Press and hold** it, talk, and let go. What happens next depends on whether the cards
+already answer you.
+
+First say something the SOP does answer - you did the steps in the wrong order:
+
+> मैंने पहले मशीन चालू कर दी, फिर प्लेट कसी। क्या यह ठीक है?
+
+**What should happen:** after a minute or two the page speaks back to you in Hindi, telling you
+what the card says to do. Nobody else is involved, and nothing about it is stored - a worker
+asking a question is never something a manager can see.
+
+Now say something the SOP does not answer, and let go:
 
 > भैया यह पैडल बहुत ढीला हो गया है। दबाने पर वापस ऊपर नहीं आता। इससे चोट लग सकती है।
 
-**What should happen:** the moment you let go, the card says **सुन लिया गया ✓**. That is the
-whole point — the worker is told they were heard immediately, and is never left waiting while
-the machine thinks.
+**What should happen:** the moment you let go it says **सुन लिया गया ✓**. That is the whole
+point - the worker is told they were heard immediately, and is never left waiting while the
+machine thinks. A loose pedal is not written on any card, so this one goes to the manager and
+the page says so.
 
-Try a second complaint, on the *बोल्ट* card, about the card being wrong:
+Try a second one, about a card being wrong:
 
 > कार्ड पर सत्रह नंबर का बोल्ट लिखा है। लेकिन यहां उन्नीस नंबर का बोल्ट लगता है।
 
-And a third, on any card, about being confused:
+And a third, about being confused:
 
 > मुझे समझ नहीं आया कि प्लेट पहले कसनी है या मशीन पहले चालू करनी है।
 
@@ -111,20 +155,23 @@ Open <http://localhost:8001/preview/inbox.html> in a new tab.
 
 Sign in with **person id `2`** and the secret from `backend/.env` (`V2S_AUTH_SECRET`).
 
-**What should happen:** your three complaints are there, each already sorted into one of three
-kinds. This is the part a generic voice app cannot do, because it needs the SOP as context:
+**What should happen:** only what the SOP could not answer is here, each already sorted by
+kind. This is the part a generic voice app cannot do, because it needs the SOP as context:
 
-| Your complaint | Should be tagged |
+| What you said | Where it went |
 |---|---|
-| Loose pedal | **Machine** — the equipment needs repair |
-| Wrong bolt number | **SOP card** — the card is wrong and needs changing |
-| Confused about order | **Training** — the card is fine, the person needs teaching |
+| Loose pedal | Inbox, tagged **Machine** — the equipment needs repair |
+| Wrong bolt number | Inbox, tagged **SOP card** — the card is wrong and needs changing |
+| Wrong order / confused | **Not here.** The SOP answered it out loud on the worker's page |
 
 The wrong-bolt one should also show a **Suggested card text** line with the corrected step.
 
+**The thing to actually check:** the question the SOP answered is nowhere in this inbox, under
+any filter. A worker asking how to do their job is not a thing their manager gets to watch.
+
 If a report still says *Processing*, transcription is not finished. Wait and reload.
 
-## 5. Reply, and hear it back on the card
+## 5. Reply, and hear it back on the machine
 
 In the inbox, type a reply under the loose-pedal report:
 
@@ -132,8 +179,8 @@ In the inbox, type a reply under the loose-pedal report:
 
 Set the status to **acknowledged** and press **Send**.
 
-Now go back to the worker tab (the cards). Within a few seconds a small **reply button**
-appears on that card. Press it.
+Now go back to the worker tab (the cards). Within a few seconds the speak bar at the bottom
+says the manager has replied, and a green **play button** appears next to it. Press it.
 
 **What should happen:** you hear the manager's reply spoken aloud in Hindi. The worker never
 had to read anything, and the loop is closed.
@@ -151,7 +198,7 @@ none of your Line A reports.
 
 ## 7. The card fixes itself
 
-Say the same wrong-bolt complaint two more times on the *बोल्ट* card (step 3), so there are
+Say the same wrong-bolt complaint two more times with the speak button (step 3), so there are
 three altogether. Wait for them to process.
 
 **What should happen:** in the inbox those three collapse into one entry marked
@@ -159,7 +206,7 @@ three altogether. Wait for them to process.
 and the proposed new text, with **Approve** and **Reject**.
 
 Press **Approve**, then reload the worker page
-(<http://localhost:8001/preview/index.html?machine=1>).
+(<http://localhost:8001/preview/cards.html?machine=1>).
 
 **What should happen:** the बोल्ट card now says *उन्नीस*, not *सत्रह*. Three workers said the
 card was wrong, and the card changed. The old version is still in the database for audit.
@@ -185,14 +232,25 @@ is read, not pushed to anyone.
 
 ## If you would rather have it all checked for you
 
-One command runs every step above except the browser parts, using recorded clips instead of
-your voice, and prints PASS or FAIL for each. With the server running on port 8001:
+One command does everything above except the browser parts: it starts the server on a scratch
+database, waits for it, runs every check with recorded clips instead of your voice, prints PASS
+or FAIL for each, and stops the server again. From `backend/`:
 
 ```powershell
-.venv\Scripts\python.exe scripts\e2e.py
+.\scripts\run_test.ps1
 ```
 
-It ends with `16 passed, 0 failed`. It takes about ten minutes, nearly all of it transcription.
+It ends with `19 passed, 0 failed` and `ALL CHECKS PASSED`. It takes about ten minutes, nearly
+all of it transcription. Useful switches:
+
+| Switch | What it does |
+|---|---|
+| `-Fresh` | Delete the scratch database first, so the run starts from nothing |
+| `-Manual` | Only start the server and leave it up, for the walkthrough above |
+| `-Keep` | Leave the server running after the checks, to poke at the result |
+| `-Port 8002` | Use a different port |
+
+The server's own output goes to `%TEMP%\v2s-test\server.log` and `server.log.err`.
 
 ## When something looks wrong
 
@@ -203,11 +261,13 @@ It ends with `16 passed, 0 failed`. It takes about ten minutes, nearly all of it
 | A report is stuck on *Processing* | Still transcribing. A minute or two per report on CPU |
 | A report says *failed* | Look at the server terminal. Usually the LLM endpoint or an empty recording |
 | Mic button does nothing | The browser blocked the microphone. Allow it for `localhost` |
+| An old page shows, with no role options | A browser cache from before the pages split. Restart the server, then reload with Ctrl+F5 |
 | Inbox is empty after signing in | You signed in as the wrong person. Line A reports need person id 2 |
-| Errors about certificates | Set `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` as in step 0 |
+| Errors about certificates | Start through `run_test.ps1`; it sets the certificate file for you |
 
 ## Start over
 
-Stop the server and delete `%TEMP%\v2s-test`. The next start builds a fresh database with the
+The database gained a column with the speak feature, so the first run after it needs a fresh
+one. Stop the server and run `run_test.ps1 -Fresh`, or delete `%TEMP%\v2s-test`. The next start builds a fresh database with the
 demo factory in it. Do this after any change to the database structure, because existing
 tables are never altered in place.
