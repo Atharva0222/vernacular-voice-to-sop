@@ -4,3 +4,5 @@ backend/**/__pycache__/
 backend/.env
 backend/static_preview/*.mp3
 .DS_Store
+backend/scripts/clips/
+backend/build.log

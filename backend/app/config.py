@@ -28,6 +28,11 @@ class Settings(BaseSettings):
     tts_voice_mr: str = "mr-IN-AarohiNeural"
 
     tmp_dir: Path = Path(tempfile.gettempdir()) / "voice-to-sop"
+    db_path: Path | None = None  # defaults to tmp_dir / "voice-to-sop.db"
+
+    # Auth - signs manager tokens and gates login. No default: the app must not run with a known key.
+    auth_secret: str
+    cors_origins: list[str] = []  # the preview is same-origin and needs none
 
     class Config:
         env_prefix = "V2S_"
@@ -35,5 +40,6 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+settings.db_path = settings.db_path or settings.tmp_dir / "voice-to-sop.db"
 settings.tmp_dir.mkdir(parents=True, exist_ok=True)
 (settings.tmp_dir / "audio_cache").mkdir(parents=True, exist_ok=True)

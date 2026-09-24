@@ -192,20 +192,17 @@ generateBtn.addEventListener('click', async () => {
     if (!stRes.ok) throw new Error(`Structuring failed: ${await stRes.text()}`);
     const { steps } = await stRes.json();
 
-    setStage(`Stage 3/3 — Generating audio for ${steps.length} step(s)...`);
-    const stepsWithAudio = [];
-    for (const step of steps) {
-      const ttsRes = await fetch(`${API_BASE}/api/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: step.text, language: detected_language }),
-      });
-      const audioUrl = ttsRes.ok ? (await ttsRes.json()).audio_url : null;
-      stepsWithAudio.push({ ...step, audio_url: audioUrl });
-    }
+    setStage('Saving SOP...');
+    const saveRes = await fetch(`${API_BASE}/api/sop`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ machine_id: 1, title: steps[0]?.text.slice(0, 60) || 'SOP', language: detected_language, transcript, steps }),
+    });
+    if (!saveRes.ok) throw new Error(`Saving SOP failed: ${await saveRes.text()}`);
+    const sop = await saveRes.json();
+    history.replaceState(null, '', `?machine=${sop.machine_id}`);
 
-    pipelineStatus.classList.add('hidden');
-    renderCards(stepsWithAudio);
+    await showSop(sop);
   } catch (err) {
     pipelineStatus.classList.add('hidden');
     showError(err.message);
@@ -214,7 +211,25 @@ generateBtn.addEventListener('click', async () => {
   }
 });
 
-function renderCards(steps) {
+const HEARD = { hi: 'सुन लिया गया', mr: 'ऐकले गेले' };
+const REPLY_POLL_MS = 15000;
+
+async function showSop(sop) {
+  setStage(`Generating audio for ${sop.steps.length} step(s)...`);
+  const steps = [];
+  for (const step of sop.steps) {
+    const ttsRes = await fetch(`${API_BASE}/api/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: step.text, language: sop.language }),
+    });
+    steps.push({ ...step, audio_url: ttsRes.ok ? (await ttsRes.json()).audio_url : null });
+  }
+  pipelineStatus.classList.add('hidden');
+  renderCards(sop, steps);
+}
+
+function renderCards(sop, steps) {
   cardsSection.innerHTML = '';
   for (const step of steps) {
     const warn = step.is_safety_warning;
@@ -230,21 +245,76 @@ function renderCards(steps) {
       <div class="flex-1 min-w-0">
         <p class="text-slate-800 leading-snug" dir="auto">${step.text}</p>
         ${warn ? '<span class="inline-flex items-center gap-1 text-xs font-medium text-orange-700 mt-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> Safety warning</span>' : ''}
+        <p class="report-status text-sm text-emerald-700 mt-1 hidden" dir="auto"></p>
       </div>
-      <div class="flex-shrink-0">
+      <div class="flex-shrink-0 flex gap-2">
         ${step.audio_url ? `<button data-src="${step.audio_url}" class="play-btn w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-900 text-white flex items-center justify-center transition"><i data-lucide="play" class="w-4 h-4"></i></button>` : ''}
+        <button class="reply-btn w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center transition hidden" title="Manager reply"><i data-lucide="message-circle" class="w-4 h-4"></i></button>
+        <button class="mic-btn w-9 h-9 rounded-full bg-rose-600 hover:bg-rose-700 text-white flex items-center justify-center transition select-none touch-none" title="Hold to report a problem"><i data-lucide="mic" class="w-4 h-4"></i></button>
       </div>
     `;
     cardsSection.appendChild(card);
+    wireReport(card, sop, step);
   }
   lucide.createIcons();
 
   document.querySelectorAll('.play-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const audio = new Audio(API_BASE + btn.dataset.src);
-      audio.play();
-    });
+    btn.addEventListener('click', () => new Audio(API_BASE + btn.dataset.src).play());
   });
+}
+
+/** Hold the mic to record, release to send. Confirms on upload; the ~minute-long triage runs server-side. */
+function wireReport(card, sop, step) {
+  const mic = card.querySelector('.mic-btn');
+  const status = card.querySelector('.report-status');
+  let recorder = null;
+  let held = false;
+
+  mic.addEventListener('pointerdown', async () => {
+    held = true;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (!held) return stream.getTracks().forEach((t) => t.stop());
+    const parts = [];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = (e) => parts.push(e.data);
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((t) => t.stop());
+      mic.classList.remove('pulse-dot');
+      const form = new FormData();
+      form.append('audio', new Blob(parts, { type: 'audio/webm' }), 'report.webm');
+      form.append('sop_id', sop.id);
+      form.append('step_id', step.id);
+      form.append('language', sop.language);
+      const res = await fetch(`${API_BASE}/api/report`, { method: 'POST', body: form });
+      if (!res.ok) return showError(`Report failed: ${await res.text()}`);
+      status.textContent = `${HEARD[sop.language]} ✓`;
+      status.classList.remove('hidden');
+      pollForReply(card, (await res.json()).receipt);
+    };
+    recorder.start();
+    mic.classList.add('pulse-dot');
+  });
+  const stop = () => { held = false; if (recorder?.state === 'recording') recorder.stop(); };
+  mic.addEventListener('pointerup', stop);
+  mic.addEventListener('pointerleave', stop);
+}
+
+async function pollForReply(card, receipt) {
+  const report = await (await fetch(`${API_BASE}/api/receipt/${receipt}`)).json();
+  if (report.status === 'failed') return;
+  if (!report.ack_audio_key) return setTimeout(() => pollForReply(card, receipt), REPLY_POLL_MS);
+  const btn = card.querySelector('.reply-btn');
+  btn.classList.remove('hidden');
+  btn.onclick = () => new Audio(`${API_BASE}/api/audio/${report.ack_audio_key}`).play();
+}
+
+const params = new URLSearchParams(location.search);
+const sopUrl = params.get('machine') ? `/api/machine/${params.get('machine')}/sop` : params.get('sop') && `/api/sop/${params.get('sop')}`;
+if (sopUrl) {
+  fetch(API_BASE + sopUrl)
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error('SOP not found'))))
+    .then(showSop)
+    .catch((err) => { pipelineStatus.classList.add('hidden'); showError(err.message); });
 }
 
 lucide.createIcons();

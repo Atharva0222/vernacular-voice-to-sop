@@ -1,3 +1,4 @@
+import logging
 import re
 import threading
 
@@ -7,6 +8,8 @@ import torch
 from transformers import GenerationConfig, WhisperForConditionalGeneration, WhisperProcessor, pipeline
 
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _asr_pipelines: dict[str, object] = {}
@@ -44,7 +47,12 @@ _SAMPLE_RATE = 16000
 # over ~30s. Fixed-duration windows are just as unreliable since they can land
 # mid-word. Splitting on actual silence gaps between sentences (never mid-word)
 # and transcribing each group separately avoids all of that.
-_WINDOW_SECONDS = 25.0
+#
+# 4s, not larger: swept over {4,5,6,8,10,15,25}s against clips with known text, the
+# models stop generating after the first sentence of any window that holds more than
+# one. A 68s/15-sentence clip recovers 15/15 at 4s and 5s, 14/15 at 6s, 10/15 at 8s,
+# 4/15 at 25s; a 10s worker complaint needs 4s to keep all three of its sentences.
+_WINDOW_SECONDS = 4.0
 _SILENCE_TOP_DB = 30
 
 
@@ -79,6 +87,18 @@ def _split_on_silence(audio: np.ndarray) -> list[np.ndarray]:
         cur_end = end
     windows.append(audio[cur_start:cur_end])
     return windows
+
+
+# Hindi/Marathi speech runs well above 6 characters per second; anything far below
+# that means the model stopped early, which is the silent failure this guard surfaces.
+_MIN_CHARS_PER_SECOND = 3.0
+
+
+def _warn_if_truncated(window: np.ndarray, text: str) -> None:
+    """Log windows whose text is too short for their duration - the model stopped early."""
+    seconds = len(window) / _SAMPLE_RATE
+    if seconds >= 2.0 and len(text) / seconds < _MIN_CHARS_PER_SECOND:
+        log.warning("possible ASR truncation: %.1fs window yielded %d characters: %r", seconds, len(text), text)
 
 
 def _get_pipeline(language: str):
@@ -142,6 +162,10 @@ def transcribe(path: str, language_hint: str | None) -> tuple[str, str]:
     }
 
     windows = _split_on_silence(audio)
-    texts = [asr(window, generate_kwargs=generate_kwargs)["text"].strip() for window in windows]
+    texts = []
+    for window in windows:
+        text = asr(window, generate_kwargs=generate_kwargs)["text"].strip()
+        _warn_if_truncated(window, text)
+        texts.append(text)
     transcript = " ".join(t for t in texts if t)
     return transcript, language

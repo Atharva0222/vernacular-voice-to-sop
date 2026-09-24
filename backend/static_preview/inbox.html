@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Worker Reports — Inbox</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }</style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <header class="mb-6 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-bold text-slate-800">Worker Reports</h1>
+        <p class="text-slate-500 text-sm mt-1">Anonymous voice reports from the line, triaged against the SOP.</p>
+      </div>
+      <div class="flex gap-2">
+        <select id="statusFilter" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="">All statuses</option>
+          <option value="open">Open</option>
+          <option value="acknowledged">Acknowledged</option>
+          <option value="resolved">Resolved</option>
+          <option value="received">Processing</option>
+          <option value="failed">Failed</option>
+        </select>
+        <select id="kindFilter" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm">
+          <option value="">All kinds</option>
+          <option value="machine">Machine</option>
+          <option value="sop">SOP card</option>
+          <option value="understanding">Training</option>
+        </select>
+      </div>
+    </header>
+    <form id="loginForm" class="bg-white rounded-xl shadow-sm border border-slate-200 p-4 mb-4 flex flex-wrap gap-2 items-center hidden">
+      <input id="personId" type="number" min="1" required placeholder="Your person id" class="border border-slate-300 rounded-lg px-3 py-1.5 text-sm w-36" />
+      <input id="secret" type="password" required placeholder="Server secret" class="flex-1 min-w-0 border border-slate-300 rounded-lg px-3 py-1.5 text-sm" />
+      <button class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Sign in</button>
+    </form>
+    <p id="whoami" class="text-sm text-slate-500 mb-4 hidden"></p>
+    <div id="errorBox" class="mb-4 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-3 hidden"></div>
+    <section id="edits" class="space-y-3 mb-6"></section>
+    <section id="list" class="space-y-3"></section>
+  </div>
+
+<script>
+const API_BASE = window.location.origin;
+const KIND = {
+  machine: ['Machine', 'bg-sky-100 text-sky-800'],
+  sop: ['SOP card', 'bg-violet-100 text-violet-800'],
+  understanding: ['Training', 'bg-amber-100 text-amber-800'],
+};
+const SEVERITY = { high: 'bg-red-600 text-white', medium: 'bg-orange-200 text-orange-900', low: 'bg-slate-200 text-slate-700' };
+
+const TOKEN_KEY = 'inboxToken';
+const list = document.getElementById('list');
+const edits = document.getElementById('edits');
+const loginForm = document.getElementById('loginForm');
+const whoami = document.getElementById('whoami');
+
+function token() {
+  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
+}
+
+function authHeaders() {
+  return { Authorization: `Bearer ${token()}` };
+}
+
+function showLogin(msg) {
+  try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
+  loginForm.classList.remove('hidden');
+  whoami.classList.add('hidden');
+  list.replaceChildren();
+  edits.replaceChildren();
+  if (msg) showError(msg);
+}
+
+loginForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const res = await fetch(`${API_BASE}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ person_id: Number(document.getElementById('personId').value), secret: document.getElementById('secret').value }),
+  });
+  if (!res.ok) return showError(`Sign-in failed: ${await res.text()}`);
+  const { token: t, name, role } = await res.json();
+  try { sessionStorage.setItem(TOKEN_KEY, t); } catch {}
+  errorBox.classList.add('hidden');
+  loginForm.classList.add('hidden');
+  whoami.textContent = `Signed in as ${name} (${role.replace('_', ' ')})`;
+  whoami.classList.remove('hidden');
+  load();
+});
+const errorBox = document.getElementById('errorBox');
+
+function badge(text, cls) {
+  return `<span class="text-xs font-medium px-2 py-0.5 rounded-full ${cls}">${text}</span>`;
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text ?? '';
+  return div.innerHTML;
+}
+
+function renderReport(r) {
+  const card = document.createElement('div');
+  card.className = 'bg-white rounded-xl shadow-sm border border-slate-200 p-4';
+  const pending = r.status === 'received' || r.status === 'failed';
+  card.innerHTML = `
+    <div class="flex flex-wrap items-center gap-2 mb-2">
+      ${r.kind ? badge(...KIND[r.kind]) : ''}
+      ${r.severity ? badge(r.severity, SEVERITY[r.severity]) : ''}
+      ${badge(r.status, 'bg-slate-100 text-slate-600')}
+      ${r.escalated ? badge('Escalated to plant head', 'bg-red-100 text-red-800') : ''}
+      ${r.cluster_size > 1 ? badge(`${r.confirmed ? 'Confirmed' : 'Repeated'} ×${r.cluster_size}`, r.confirmed ? 'bg-rose-600 text-white' : 'bg-rose-100 text-rose-800') : ''}
+      <span class="text-xs text-slate-400 ml-auto">#${r.id} · SOP ${r.sop_id}${r.step_id ? ` · step ${r.step_id}` : ''} · ${new Date(r.created_at).toLocaleString()}</span>
+    </div>
+    <p class="text-slate-800 leading-snug" dir="auto">${escapeHtml(r.summary || (r.status === 'failed' ? `Processing failed: ${r.error}` : 'Processing voice report...'))}</p>
+    ${r.suggested_change ? `<p class="text-sm text-violet-800 bg-violet-50 rounded-lg p-2 mt-2" dir="auto">Suggested card text: ${escapeHtml(r.suggested_change)}</p>` : ''}
+    ${r.response_text ? `<p class="text-sm text-emerald-800 mt-2" dir="auto">Your reply: ${escapeHtml(r.response_text)}</p>` : ''}
+    ${pending ? '' : `
+    <div class="flex flex-wrap gap-2 mt-3">
+      <input class="reply flex-1 min-w-0 border border-slate-300 rounded-lg px-3 py-1.5 text-sm" dir="auto" placeholder="Reply to the worker (spoken back in ${r.language === 'mr' ? 'Marathi' : 'Hindi'})" />
+      <select class="status border border-slate-300 rounded-lg px-2 py-1.5 text-sm">
+        ${['open', 'acknowledged', 'resolved'].map((s) => `<option ${s === r.status ? 'selected' : ''}>${s}</option>`).join('')}
+      </select>
+      <button class="send bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Send</button>
+    </div>`}
+  `;
+  card.querySelector('.send')?.addEventListener('click', async () => {
+    const reply = card.querySelector('.reply').value.trim();
+    const body = { status: card.querySelector('.status').value, ...(reply && { response_text: reply }) };
+    const res = await fetch(`${API_BASE}/api/report/${r.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return showError(`Update failed: ${await res.text()}`);
+    load();
+  });
+  return card;
+}
+
+function renderEdit(e) {
+  const card = document.createElement('div');
+  card.className = 'bg-violet-50 rounded-xl border-2 border-violet-300 p-4';
+  card.innerHTML = `
+    <p class="text-sm font-semibold text-violet-900 mb-2">Card change proposed by ${e.report_count} worker reports · machine ${e.machine_id}, step ${e.step_number}</p>
+    <p class="text-sm text-red-800 bg-red-50 rounded-lg p-2 line-through" dir="auto">${escapeHtml(e.old_text)}</p>
+    <p class="text-sm text-emerald-900 bg-emerald-50 rounded-lg p-2 mt-1" dir="auto">${escapeHtml(e.new_text)}</p>
+    <div class="flex gap-2 mt-3">
+      <button data-action="approve" class="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium">Approve</button>
+      <button data-action="reject" class="bg-white border border-slate-300 hover:bg-slate-50 px-4 py-1.5 rounded-lg text-sm font-medium">Reject</button>
+    </div>
+  `;
+  card.querySelectorAll('button').forEach((btn) => btn.addEventListener('click', async () => {
+    const res = await fetch(`${API_BASE}/api/step-edit/${e.id}/${btn.dataset.action}`, { method: 'POST', headers: authHeaders() });
+    if (!res.ok) return showError(`${btn.dataset.action} failed: ${await res.text()}`);
+    load();
+  }));
+  return card;
+}
+
+function showError(msg) {
+  errorBox.textContent = msg;
+  errorBox.classList.remove('hidden');
+}
+
+async function load() {
+  const params = new URLSearchParams();
+  const status = document.getElementById('statusFilter').value;
+  const kind = document.getElementById('kindFilter').value;
+  if (status) params.set('status', status);
+  if (kind) params.set('kind', kind);
+  if (!token()) return showLogin();
+  const res = await fetch(`${API_BASE}/api/reports?${params}`, { headers: authHeaders() });
+  if (res.status === 401 || res.status === 403) return showLogin(res.status === 403 ? 'Supervisors cannot view worker reports.' : 'Please sign in again.');
+  if (!res.ok) return showError(`Loading reports failed: ${await res.text()}`);
+  const reports = await res.json();
+  const editsRes = await fetch(`${API_BASE}/api/step-edits`, { headers: authHeaders() });
+  if (editsRes.ok) edits.replaceChildren(...(await editsRes.json()).map(renderEdit));
+  list.replaceChildren(...reports.map(renderReport));
+  if (!reports.length) list.innerHTML = '<p class="text-slate-500 text-sm">No reports.</p>';
+}
+
+document.getElementById('statusFilter').addEventListener('change', load);
+document.getElementById('kindFilter').addEventListener('change', load);
+load();
+</script>
+</body>
+</html>

@@ -35,11 +35,105 @@ class TTSResponse(BaseModel):
     audio_url: str
 
 
-class StepWithAudio(Step):
-    audio_url: str
-
-
-class SOPWithAudioResponse(BaseModel):
+class SOPCreate(BaseModel):
+    machine_id: int
+    title: str
+    language: Language
     transcript: str
-    detected_language: Language
-    steps: list[StepWithAudio]
+    steps: list[Step]
+
+
+class StoredStep(Step):
+    id: int
+
+
+class SOPSummary(BaseModel):
+    id: int
+    machine_id: int
+    title: str
+    language: Language
+    version: int
+    created_at: str
+
+
+class StoredSOP(SOPSummary):
+    transcript: str
+    steps: list[StoredStep]
+
+
+ReportKind = Literal["machine", "sop", "understanding"]
+ReportStatus = Literal["received", "failed", "open", "acknowledged", "resolved"]
+
+
+class Triage(BaseModel):
+    kind: ReportKind
+    summary: str
+    step_id: int | None
+    severity: Literal["low", "medium", "high"]
+    suggested_change: str | None
+
+
+class ReportCreated(BaseModel):
+    report_id: int
+    receipt: str
+    status: ReportStatus
+
+
+class ReportReceipt(BaseModel):
+    status: ReportStatus
+    ack_audio_key: str | None
+
+
+class Report(BaseModel):
+    id: int
+    sop_id: int
+    step_id: int | None
+    language: str | None
+    status: ReportStatus
+    kind: ReportKind | None
+    summary: str | None
+    severity: str | None
+    suggested_change: str | None
+    error: str | None
+    response_text: str | None
+    ack_audio_key: str | None
+    created_at: str
+    machine_id: int
+    assigned_to: int | None
+    escalate_after: str | None
+    escalated: bool
+    effective_assignee: int | None
+    cluster_id: int | None
+    cluster_size: int
+    confirmed: bool
+
+
+class ReportUpdate(BaseModel):
+    status: Literal["open", "acknowledged", "resolved"] | None = None
+    response_text: str | None = None
+
+
+class LoginRequest(BaseModel):
+    person_id: int
+    secret: str
+
+
+class LoginResponse(BaseModel):
+    token: str
+    name: str
+    role: str
+
+
+class StepEdit(BaseModel):
+    id: int
+    cluster_id: int
+    machine_id: int
+    sop_id: int
+    step_id: int
+    step_number: int
+    old_text: str
+    new_text: str
+    status: Literal["pending", "approved", "rejected"]
+    new_sop_id: int | None
+    report_count: int
+    created_at: str

@@ -16,3 +16,5 @@ services:
         sync: false
       - key: HF_HUB_DISABLE_XET
         value: "1"
+      - key: V2S_AUTH_SECRET
+        generateValue: true
