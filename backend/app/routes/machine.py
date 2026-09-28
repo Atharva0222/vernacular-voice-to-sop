@@ -1,12 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
 
-from app import db
+from fastapi import APIRouter, Depends, HTTPException
+
+from app import auth, db
 from app.schemas import Line, MachineCreate, MachineSummary
 
 router = APIRouter()
+Author = Annotated[dict, Depends(auth.sop_author)]
 
 _SUMMARY_SQL = """
-SELECT m.id, m.name, l.name AS line_name,
+SELECT m.id, m.name, m.line_id, l.name AS line_name,
        s.id AS sop_id, s.version AS sop_version, s.language,
        (SELECT COUNT(*) FROM steps WHERE sop_id = s.id) AS step_count
 FROM machines m
@@ -31,11 +34,13 @@ def list_machines() -> list[MachineSummary]:
 
 
 @router.post("/machines", response_model=MachineSummary, status_code=201)
-def create_machine(req: MachineCreate) -> MachineSummary:
+def create_machine(req: MachineCreate, person: Author) -> MachineSummary:
     """Add a machine to a line. It starts with no SOP, waiting for a supervisor to record one."""
     with db.connect() as conn:
         if not conn.execute("SELECT 1 FROM lines WHERE id = ?", (req.line_id,)).fetchone():
             raise HTTPException(404, "line not found")
+        if not auth.may_author_line(person, req.line_id, conn):
+            raise HTTPException(403, "that line is not yours")
         machine_id = conn.execute(
             "INSERT INTO machines (line_id, name) VALUES (?, ?)", (req.line_id, req.name)
         ).lastrowid
@@ -43,8 +48,12 @@ def create_machine(req: MachineCreate) -> MachineSummary:
 
 
 @router.get("/lines", response_model=list[Line])
-def list_lines() -> list[Line]:
-    """The lines a new machine can belong to."""
+def list_lines(person: Author) -> list[Line]:
+    """The lines a new machine can belong to: only the caller's own."""
+    if person["role"] == "plant_head":
+        where, params = "plant_id = :plant", {"plant": person["plant_id"]}
+    else:
+        where, params = "supervisor_id = :me OR manager_id = :me", {"me": person["id"]}
     with db.connect() as conn:
-        rows = conn.execute("SELECT id, name, plant_id FROM lines ORDER BY id").fetchall()
+        rows = conn.execute(f"SELECT id, name, plant_id FROM lines WHERE {where} ORDER BY id", params).fetchall()
     return [Line(**r) for r in rows]

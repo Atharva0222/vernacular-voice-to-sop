@@ -16,16 +16,19 @@ Open PowerShell in `backend/` and pick one:
 .\scripts\run_test.ps1             # no browser: runs every check for you, ~10 min
 ```
 
-Then open <http://localhost:8001/preview/index.html> and choose a role. The pages are:
+Then open <http://localhost:8001/preview/index.html>. The worker walks straight in; staff sign
+in with an id and PIN, and the role decides the screen. The pages are:
 
 | Page | Who it is for | What it does |
 |---|---|---|
-| `/preview/index.html` | everyone | Home. Choose Worker, Supervisor or Manager |
-| `/preview/machines.html?role=worker` | worker | Pick a machine, then read its cards |
+| `/preview/index.html` | everyone | The worker's door, and the staff sign-in |
+| `/preview/machines.html` | worker | Pick a machine, then read its cards |
 | `/preview/cards.html?machine=1` | worker | That machine's cards, plus one speak button to ask or report |
-| `/preview/machines.html?role=supervisor` | supervisor | Pick the machine you are recording for |
+| `/preview/machines.html` | supervisor | Signed in, the same page lists only their lines and can add a machine |
 | `/preview/create.html?machine=1` | supervisor | That machine's current cards, or record its first version |
 | `/preview/inbox.html` | manager | Reports, replies, and card changes to approve |
+
+Opening a staff page without signing in bounces you back to the sign-in.
 
 Each machine keeps its own SOP, so cards are always read per machine. The worker's two pages
 are entirely in Hindi; the supervisor's and manager's pages are in English.
@@ -62,23 +65,28 @@ Open <http://localhost:8001/api/health> in the browser. You should see `{"status
 
 The first run creates the database and fills it with a demo factory:
 
-| Who / what | id | Notes |
-|---|---|---|
-| Demo Supervisor (Line A) | 1 | Must never be able to read reports |
-| Demo Manager (Line A) | 2 | This is you, for most of the test |
-| Demo Plant Head | 3 | Reports land here when a manager is too slow |
-| Demo Manager B (Line B) | 5 | Should not see Line A's reports |
-| Press 1 (machine on Line A) | 1 | |
-| Lathe 1 (machine on Line B) | 2 | |
+| Who / what | id | PIN | Notes |
+|---|---|---|---|
+| Demo Supervisor (Line A) | 1 | `1111` | Must never be able to read reports |
+| Demo Manager (Line A) | 2 | `2222` | This is you, for most of the test |
+| Demo Plant Head | 3 | `3333` | Reports land here when a manager is too slow |
+| Demo Supervisor B (Line B) | 4 | `4444` | |
+| Demo Manager B (Line B) | 5 | `5555` | Should not see Line A's reports |
+| Press 1 (machine on Line A) | 1 | | |
+| Lathe 1 (machine on Line B) | 2 | | |
+
+Those PINs are seeded only into a brand-new database, so a real deployment never gets them.
+Workers have no id and no PIN anywhere in this table, which is the point.
 
 Everything else happens in the browser.
 
 ## 2. Make the SOP cards (the supervisor's part)
 
-Open <http://localhost:8001/preview/index.html> — the home page. It asks who you are:
-**Worker**, **Supervisor** or **Manager**.
+Open <http://localhost:8001/preview/index.html> — the home page. Sign in under
+**Supervisor or manager** as **id `1`, PIN `1111`** (Demo Supervisor, Line A). You land on the
+machine list, which shows only Line A: signing in as someone else would show a different list.
 
-Choose **Supervisor**, then pick **Press 1** from the machine list. Each machine has its own
+Pick **Press 1** from the machine list. Each machine has its own
 SOP, so the procedure you record belongs to the machine you picked. A machine that is not on
 the list yet is added there with **Add a machine** - name it, choose its line, and it opens
 ready to record.
@@ -153,7 +161,8 @@ voice and recognise who it was. Only the cleaned text survives.
 
 Open <http://localhost:8001/preview/inbox.html> in a new tab.
 
-Sign in with **person id `2`** and the secret from `backend/.env` (`V2S_AUTH_SECRET`).
+It sends you to the sign-in if you are not already a manager there. Sign in as **id `2`,
+PIN `2222`** (Demo Manager, Line A).
 
 **What should happen:** only what the SOP could not answer is here, each already sorted by
 kind. This is the part a generic voice app cannot do, because it needs the SOP as context:
@@ -189,12 +198,19 @@ had to read anything, and the loop is closed.
 
 This is the promise the whole feature rests on, so test it directly.
 
-Close the inbox tab and open <http://localhost:8001/preview/inbox.html> in a fresh one — the
-sign-in only lasts as long as the tab. Sign in as **person id `1`**, Demo Supervisor.
+Close the inbox tab and open <http://localhost:8001/preview/index.html> in a fresh one — a
+sign-in only lasts as long as the tab. Sign in as **id `1`, PIN `1111`**, Demo Supervisor.
 
-**What should happen:** refused. The supervisor cannot see a single report, not even their own
-line's. Then try **person id `5`** (Demo Manager B, the other line): they sign in fine but see
-none of your Line A reports.
+**What should happen:** you land on the machine list, not the inbox, and going to
+`/preview/inbox.html` by hand bounces you straight back out. The supervisor cannot see a single
+report, not even their own line's.
+
+Then sign in as **id `5`, PIN `5555`** (Demo Manager B, the other line): they reach the inbox
+fine but see none of your Line A reports. While signed in as them, the machine list offers only
+Line B, and trying to save a card for Press 1 is refused.
+
+Two more worth a try: the wrong PIN for a real id, and a PIN for an id that does not exist.
+Both say exactly **"Wrong id or PIN"**, so nobody can discover which ids are real.
 
 ## 7. The card fixes itself
 
@@ -263,6 +279,9 @@ The server's own output goes to `%TEMP%\v2s-test\server.log` and `server.log.err
 | Mic button does nothing | The browser blocked the microphone. Allow it for `localhost` |
 | An old page shows, with no role options | A browser cache from before the pages split. Restart the server, then reload with Ctrl+F5 |
 | Inbox is empty after signing in | You signed in as the wrong person. Line A reports need person id 2 |
+| Sign-in says "Wrong id or PIN" | Check the id and PIN against the demo table above. An old database has no PINs at all - delete it and restart |
+| A staff page bounces to the home page | The session ended, or that role does not belong on that page. Sign in again |
+| Saving a card is refused with 403 | That machine is not on one of your lines. Sign in as its line's supervisor |
 | Errors about certificates | Start through `run_test.ps1`; it sets the certificate file for you |
 
 ## Start over

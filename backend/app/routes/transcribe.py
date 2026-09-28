@@ -1,20 +1,22 @@
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
-from app import asr
+from app import asr, auth
 from app.config import settings
 from app.schemas import TranscribeResponse
 
 router = APIRouter()
+Author = Annotated[dict, Depends(auth.sop_author)]
 
 _ALLOWED_LANGS = {"hi", "mr", "auto"}
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
 def transcribe_audio(
+    person: Author,
     audio: UploadFile = File(...),
     language: Optional[str] = Form("auto"),
 ) -> TranscribeResponse:

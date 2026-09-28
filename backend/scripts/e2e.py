@@ -16,7 +16,7 @@ import edge_tts
 import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app import corrections, db, routing  # noqa: E402
+from app import auth, corrections, db, routing  # noqa: E402
 from app.config import settings  # noqa: E402
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8001").rstrip("/")
@@ -57,8 +57,12 @@ def clip(name: str, text: str) -> Path:
 
 
 def token(person_id: int) -> str:
-    r = client.post(f"{API}/login", json={"person_id": person_id, "secret": settings.auth_secret})
+    r = client.post(f"{API}/login", json={"person_id": person_id, "pin": db.DEMO_PINS[person_id]})
     return r.raise_for_status().json()["token"]
+
+
+def bearer(person_id: int) -> dict:
+    return {"Authorization": f"Bearer {token(person_id)}"}
 
 
 def wait_processed(report_id: int, headers: dict, timeout: float = 900) -> dict:
@@ -80,10 +84,10 @@ def recovered(sentence: str, transcript: str) -> bool:
     return sum(w in transcript for w in words) >= len(words) / 2
 
 
-def phase0_transcribe() -> None:
+def phase0_transcribe(author: dict) -> None:
     """A whole narration comes back, not only its first sentence."""
     path = clip("narration", " ".join(NARRATION))
-    r = client.post(f"{API}/transcribe", data={"language": "hi"},
+    r = client.post(f"{API}/transcribe", data={"language": "hi"}, headers=author,
                     files={"audio": (path.name, path.read_bytes(), "audio/mpeg")})
     transcript = r.json().get("transcript", "")
     got = sum(1 for s in NARRATION if recovered(s, transcript))
@@ -91,13 +95,15 @@ def phase0_transcribe() -> None:
           f"{got}/{len(NARRATION)} - {transcript}")
 
 
-def phase1_sop() -> dict:
+def phase1_sop(author: dict) -> dict:
     """Structure a transcript, persist it, and read it back with its steps in order."""
     transcript = " ".join(NARRATION)
-    structured = client.post(f"{API}/structure", json={"transcript": transcript, "language": "hi"}).json()
+    structured = client.post(f"{API}/structure", headers=author,
+                             json={"transcript": transcript, "language": "hi"}).json()
     check("phases 1-2: /structure returns steps", bool(structured.get("steps")), str(structured)[:200])
-    created = client.post(f"{API}/sop", json={"machine_id": 1, "title": "Press 1", "language": "hi",
-                                              "transcript": transcript, "steps": structured["steps"]}).json()
+    created = client.post(f"{API}/sop", headers=author,
+                          json={"machine_id": 1, "title": "Press 1", "language": "hi",
+                                "transcript": transcript, "steps": structured["steps"]}).json()
     sop = client.get(f"{API}/sop/{created['id']}").json()
     numbers = [s["step_number"] for s in sop["steps"]]
     check("phases 1-2: SOP persists and reads back in order",
@@ -199,12 +205,39 @@ def phase6_cluster(sop: dict, headers: dict) -> dict:
 
 
 def phase7_access(report_id: int) -> None:
-    """A supervisor is refused; a manager sees only their own lines."""
-    supervisor = client.get(f"{API}/reports", headers={"Authorization": f"Bearer {token(1)}"})
+    """Sign-in is by PIN; a supervisor is refused the inbox; everyone is held to their own lines."""
+    wrong = client.post(f"{API}/login", json={"person_id": 2, "pin": "0000"})
+    check("phase 7: a wrong PIN is refused", wrong.status_code == 401, f"status={wrong.status_code}")
+    unknown = client.post(f"{API}/login", json={"person_id": 999, "pin": "0000"})
+    check("phase 7: an unknown id looks the same as a wrong PIN",
+          unknown.status_code == 401 and unknown.text == wrong.text, f"status={unknown.status_code}")
+
+    supervisor = client.get(f"{API}/reports", headers=bearer(1))
     check("phase 7: a supervisor token is refused", supervisor.status_code == 403, f"status={supervisor.status_code}")
-    other = client.get(f"{API}/report/{report_id}", headers={"Authorization": f"Bearer {token(5)}"})
+    other = client.get(f"{API}/report/{report_id}", headers=bearer(5))
     check("phase 7: another line's manager cannot see the report", other.status_code == 404,
           f"status={other.status_code}")
+
+    anon = client.get(f"{API}/lines")
+    check("phase 7: authoring without a token is refused", anon.status_code == 401, f"status={anon.status_code}")
+    good = token(1)
+    forged = good[:-1] + ("a" if good[-1] != "a" else "b")
+    check("phase 7: a tampered token is refused",
+          client.get(f"{API}/lines", headers={"Authorization": f"Bearer {forged}"}).status_code == 401)
+    stale = f"1.{int(time.time()) - 10}"
+    expired = f"{stale}.{auth._sign(stale)}"
+    check("phase 7: a correctly signed but expired token is refused",
+          client.get(f"{API}/lines", headers={"Authorization": f"Bearer {expired}"}).status_code == 401)
+
+    off_line = client.post(f"{API}/machines", json={"line_id": 2, "name": "Not yours"}, headers=bearer(1))
+    check("phase 7: a supervisor cannot author on another line", off_line.status_code == 403,
+          f"status={off_line.status_code}")
+    check("phase 7: a supervisor sees only their own lines",
+          [l["id"] for l in client.get(f"{API}/lines", headers=bearer(1)).json()] == [1])
+    check("phase 7: a plant head sees the whole plant",
+          [l["id"] for l in client.get(f"{API}/lines", headers=bearer(3)).json()] == [1, 2])
+
+    check("phase 7: the worker's machine list needs no token", client.get(f"{API}/machines").status_code == 200)
 
 
 def phase8_correction(sop: dict, headers: dict) -> None:
@@ -222,9 +255,10 @@ def phase8_correction(sop: dict, headers: dict) -> None:
 
 
 def main() -> None:
-    headers = {"Authorization": f"Bearer {token(2)}"}  # Demo Manager, Line A
-    phase0_transcribe()
-    sop = phase1_sop()
+    headers = bearer(2)  # Demo Manager, Line A
+    author = bearer(1)   # Demo Supervisor, Line A
+    phase0_transcribe(author)
+    sop = phase1_sop(author)
     reports = phase3_reports(sop, headers)
     phase3b_ask(sop, headers)
     phase4_reply(reports["machine"], headers)

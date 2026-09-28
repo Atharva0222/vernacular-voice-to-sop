@@ -30,6 +30,63 @@ async function api(path, options) {
   return res.json();
 }
 
+/* ---- staff session. Workers never have one; every access is guarded so that a
+   browser with storage blocked still renders the worker pages. ---- */
+
+const SESSION_KEY = 'v2sSession';
+
+function session() {
+  try {
+    return JSON.parse(sessionStorage.getItem(SESSION_KEY)) || null;
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(data) {
+  try { sessionStorage.setItem(SESSION_KEY, JSON.stringify(data)); } catch {}
+}
+
+function signOut() {
+  try { sessionStorage.removeItem(SESSION_KEY); } catch {}
+  location.href = 'index.html';
+}
+
+const token = () => session()?.token || null;
+
+function authHeaders() {
+  return { Authorization: `Bearer ${token()}` };
+}
+
+/** The page a role belongs on after signing in. */
+function homeFor(role) {
+  return role === 'supervisor' ? 'machines.html' : 'inbox.html';
+}
+
+/** Send anyone without one of these roles back to the sign-in page. */
+function requireRole(...roles) {
+  const who = session();
+  if (!who || !roles.includes(who.role)) {
+    location.href = 'index.html';
+    return null;
+  }
+  return who;
+}
+
+/** api() with the token attached; an expired session returns to sign-in. */
+async function apiAuth(path, options = {}) {
+  const res = await fetch(API_BASE + path, {
+    ...options,
+    headers: { ...(options.headers || {}), ...authHeaders() },
+  });
+  if (res.status === 401) {
+    signOut();
+    throw new Error('session expired');
+  }
+  if (!res.ok) throw new Error(`${path}: ${await res.text()}`);
+  return res.status === 204 ? null : res.json();
+}
+
 async function getMachine(machineId) {
   const machines = await api('/api/machines');
   const machine = machines.find((m) => m.id === Number(machineId));

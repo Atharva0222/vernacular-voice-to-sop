@@ -26,7 +26,7 @@
 </head>
 <body>
   <div class="wrap">
-    <a class="back" href="machines.html?role=supervisor"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Machines</a>
+    <a class="back" href="machines.html"><i data-lucide="arrow-left" style="width:16px;height:16px"></i> Machines</a>
 
     <header class="head">
       <h1 id="pageTitle">Record a procedure</h1>
@@ -84,6 +84,9 @@
 
 <script src="app.js"></script>
 <script>
+// Authoring is supervisor-only; anyone else is sent back to sign in.
+const staff = requireRole('supervisor');
+
 const machineId = param('machine');
 
 let recordedBlob = null;
@@ -158,21 +161,21 @@ generateBtn.addEventListener('click', async () => {
     const form = new FormData();
     form.append('audio', recordedBlob, 'clip.webm');
     form.append('language', document.getElementById('lang').value);
-    const { transcript, detected_language } = await api('/api/transcribe', { method: 'POST', body: form });
+    const { transcript, detected_language } = await apiAuth('/api/transcribe', { method: 'POST', body: form });
 
     transcriptText.textContent = transcript;
     detectedLangBadge.textContent = detected_language === 'mr' ? 'Marathi' : 'Hindi';
     transcriptBox.classList.remove('hidden');
 
     setStage('Splitting it into steps...');
-    const { steps } = await api('/api/structure', {
+    const { steps } = await apiAuth('/api/structure', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ transcript, language: detected_language }),
     });
 
     setStage(`Saving ${steps.length} cards...`);
-    const sop = await api('/api/sop', {
+    const sop = await apiAuth('/api/sop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -236,7 +239,7 @@ async function load() {
   if (machine.sop_id) await showCurrentSop(machine);
 }
 
-load().catch((err) => showError(err.message));
+if (staff) load().catch((err) => showError(err.message));
 
 lucide.createIcons();
 </script>

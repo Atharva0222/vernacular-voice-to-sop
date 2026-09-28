@@ -26,9 +26,12 @@ cp .env.example .env        # then set V2S_AUTH_SECRET and your LLM key
 .venv/Scripts/uvicorn app.main:app --reload --port 8001
 ```
 
-Open `http://localhost:8001/preview/index.html` and pick a role: **Worker** (machine list, that machine's cards,
-and one speak button that the SOP answers when it can), **Supervisor** (add machines, record a procedure for one) or **Manager**
-(the report inbox). Models download on first transcription.
+Open `http://localhost:8001/preview/index.html`. **Workers do not sign in**: the worker door
+leads straight to the machine list, that machine's cards, and one speak button that the SOP
+answers when it can. **Supervisors and managers sign in with a person id and PIN**, and the
+role in the token decides the screen: supervisors add machines and record procedures for their
+own lines, managers get the report inbox. A fresh database seeds demo staff with the PINs in
+`TESTING.md`. Models download on first transcription.
 
 Docker: `docker build -t voice-to-sop backend && docker run --env-file backend/.env -p 8000:8000 voice-to-sop`.
 
@@ -38,7 +41,7 @@ All read from the environment or `backend/.env`, prefix `V2S_`.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `V2S_AUTH_SECRET` | *required* | Signs manager tokens and gates `POST /api/login`. The app will not start without it. |
+| `V2S_AUTH_SECRET` | *required* | Signs session tokens. Not a login credential: staff sign in with their own PIN. The app will not start without it. |
 | `V2S_DB_PATH` | `<tmp_dir>/voice-to-sop.db` | SQLite file. An empty file is seeded with a demo plant, two lines and two machines. |
 | `V2S_CORS_ORIGINS` | *empty* | Allowed browser origins. The bundled preview is same-origin and needs none. |
 | `V2S_LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (Ollama locally, Groq in deployment). |
@@ -49,21 +52,34 @@ All read from the environment or `backend/.env`, prefix `V2S_`.
 
 ## API
 
-**Open (no token).** Worker- and authoring-facing.
+**Open (no token).** The worker's path. A worker has no account, so none of this asks for one.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/machines`, `GET /api/machine/{id}/sop` | the machine picker, and that machine's current (highest) version |
+| `GET /api/sop/{id}` | read one SOP |
+| `POST /api/tts`, `GET /api/audio/{key}` | synthesize and play audio |
+| `POST /api/report`, `POST /api/ask` | a worker's voice report; returns `202` at once with a receipt |
+| `GET /api/receipt/{receipt}` | the worker's own view: status and reply audio only |
+| `POST /api/login`, `GET /api/health` | sign in; health check |
+
+**Sign in** with `POST /api/login {person_id, pin}` -> `Authorization: Bearer <token>`. PINs are
+per person, hashed with scrypt; a person with no PIN cannot sign in. Tokens expire after 12
+hours. A wrong PIN and an unknown id return the same `401`.
+
+**Authoring token** (any signed-in staff member, held to the lines they run: a supervisor or
+manager to their own, a plant head to their whole plant). Off-line writes get `403`.
 
 | Route | Purpose |
 |---|---|
 | `POST /api/transcribe` | audio -> transcript |
 | `POST /api/structure` | transcript -> steps (pure, stores nothing) |
-| `POST /api/sop`, `GET /api/sop/{id}`, `GET /api/sops` | persist and read SOPs |
-| `GET /api/machine/{id}/sop` | the machine's current (highest) version |
-| `POST /api/tts`, `GET /api/audio/{key}` | synthesize and play audio |
-| `POST /api/report` | a worker's voice report; returns `202` at once with a receipt |
-| `GET /api/receipt/{receipt}` | the worker's own view: status and reply audio only |
-| `GET /api/health` | health check |
+| `POST /api/sop` | persist an SOP as the next version for its machine |
+| `GET /api/sops` | every SOP on the caller's own lines |
+| `POST /api/machines`, `GET /api/lines` | add a machine; the lines the caller may use |
 
-**Manager token** (`POST /api/login {person_id, secret}` -> `Authorization: Bearer <token>`).
-Supervisors get `403`; a manager sees only their own lines, a plant head their whole plant.
+**Manager token.** Supervisors get `403`; a manager sees only their own lines, a plant head
+their whole plant.
 
 | Route | Purpose |
 |---|---|
@@ -92,3 +108,6 @@ access control and SOP self-correction.
   before any pilot.
 - Escalation is computed on read, so nothing escalates until a manager opens the inbox.
 - Triage accuracy is unmeasured, and Marathi ASR is weaker than Hindi.
+- Staff sign-in is deliberately minimal: there is no way to change or reset a PIN, no account
+  creation screen, no lockout after repeated wrong PINs, and no refresh tokens. PINs are set
+  in the database. Rotating `V2S_AUTH_SECRET` signs everyone out at once.

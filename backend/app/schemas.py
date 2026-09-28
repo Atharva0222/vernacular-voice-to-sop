@@ -61,6 +61,7 @@ class MachineCreate(BaseModel):
 class MachineSummary(BaseModel):
     id: int
     name: str
+    line_id: int
     line_name: str
     sop_id: int | None
     sop_version: int | None
@@ -145,7 +146,7 @@ class ReportUpdate(BaseModel):
 
 class LoginRequest(BaseModel):
     person_id: int
-    secret: str
+    pin: str
 
 
 class LoginResponse(BaseModel):

@@ -228,6 +228,14 @@ account, and requiring one would both deter reporting and destroy anonymity.
 
 **Verify:** a supervisor token is refused; a manager token sees only their own lines' reports.
 
+**Built, with two changes (see `auth-plan.md`).** The shared `V2S_AUTH_SECRET` login was
+replaced by a per-person PIN hashed with scrypt; the secret now only signs tokens, and tokens
+expire after 12 hours. Supervisors do sign in, which let the authoring routes
+(`POST /api/machines`, `POST /api/sop`, `POST /api/structure`, `POST /api/transcribe`,
+`GET /api/lines`, `GET /api/sops`) be closed and scoped to the lines a person runs — they were
+open to anyone. Workers still have no account and no PIN, so report submission and the card
+routes stay unauthenticated and anonymity remains structural rather than a policy.
+
 ## Phase 8 — SOP self-correction
 
 **Files:** extend `app/routes/sop.py`

@@ -7,16 +7,20 @@ from app.schemas import SOPCreate, SOPSummary, StepEdit, StoredSOP
 
 router = APIRouter()
 Reader = Annotated[dict, Depends(auth.report_reader)]
+Author = Annotated[dict, Depends(auth.sop_author)]
 
 _SUMMARY_COLS = "id, machine_id, title, language, version, created_at"
 
 
 @router.post("/sop", response_model=StoredSOP)
-def create_sop(req: SOPCreate) -> StoredSOP:
+def create_sop(req: SOPCreate, person: Author) -> StoredSOP:
     """Persist a generated SOP as the next version for its machine."""
     with db.connect() as conn:
-        if not conn.execute("SELECT 1 FROM machines WHERE id = ?", (req.machine_id,)).fetchone():
+        machine = conn.execute("SELECT line_id FROM machines WHERE id = ?", (req.machine_id,)).fetchone()
+        if not machine:
             raise HTTPException(404, "machine not found")
+        if not auth.may_author_line(person, machine["line_id"], conn):
+            raise HTTPException(403, "that machine is not on one of your lines")
         version = conn.execute(
             "SELECT COALESCE(MAX(version), 0) + 1 FROM sops WHERE machine_id = ?", (req.machine_id,)
         ).fetchone()[0]
@@ -45,9 +49,18 @@ def get_sop(sop_id: int) -> StoredSOP:
 
 
 @router.get("/sops", response_model=list[SOPSummary])
-def list_sops() -> list[SOPSummary]:
+def list_sops(person: Author) -> list[SOPSummary]:
+    """Every SOP on the caller's own lines, newest first."""
+    where, params = auth.author_scope_sql(person)
     with db.connect() as conn:
-        rows = conn.execute(f"SELECT {_SUMMARY_COLS} FROM sops ORDER BY id DESC").fetchall()
+        rows = conn.execute(
+            f"SELECT {_SUMMARY_COLS} FROM ("
+            f"  SELECT s.*, m.line_id, l.plant_id FROM sops s"
+            f"  JOIN machines m ON m.id = s.machine_id"
+            f"  JOIN lines l ON l.id = m.line_id"
+            f") WHERE {where} ORDER BY id DESC",
+            params,
+        ).fetchall()
     return [SOPSummary(**r) for r in rows]
 
 

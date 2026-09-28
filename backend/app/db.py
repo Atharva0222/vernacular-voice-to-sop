@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS people (
     role TEXT NOT NULL CHECK (role IN ('supervisor', 'manager', 'plant_head')),
     phone TEXT,
     language TEXT NOT NULL DEFAULT 'hi',
-    plant_id INTEGER NOT NULL REFERENCES plants(id)
+    plant_id INTEGER NOT NULL REFERENCES plants(id),
+    pin_hash TEXT
 );
 CREATE TABLE IF NOT EXISTS lines (
     id INTEGER PRIMARY KEY,
@@ -126,6 +127,8 @@ INSERT INTO lines (id, plant_id, name, supervisor_id, manager_id) VALUES
 INSERT INTO machines (id, line_id, name) VALUES (1, 1, 'Press 1'), (2, 2, 'Lathe 1');
 """
 
+DEMO_PINS = {1: "1111", 2: "2222", 3: "3333", 4: "4444", 5: "5555"}
+
 
 @contextmanager
 def connect():
@@ -141,8 +144,17 @@ def connect():
 
 
 def init() -> None:
-    """Create tables, and seed a demo org on an empty database."""
+    """Create tables, and seed a demo org with known PINs on an empty database."""
+    from app import auth  # deferred: auth imports this module
+
     with connect() as conn:
         conn.executescript(SCHEMA)
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(people)")}
+        if "pin_hash" not in cols:
+            conn.execute("ALTER TABLE people ADD COLUMN pin_hash TEXT")
         if conn.execute("SELECT COUNT(*) FROM plants").fetchone()[0] == 0:
             conn.executescript(DEMO_ORG)
+            conn.executemany(
+                "UPDATE people SET pin_hash = ? WHERE id = ?",
+                [(auth.hash_pin(pin), person_id) for person_id, pin in DEMO_PINS.items()],
+            )

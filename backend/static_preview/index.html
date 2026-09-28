@@ -32,6 +32,11 @@
   .masthead { margin-bottom: 30px; }
   .masthead h1 { margin: 0; font-size: 30px; font-weight: 700; letter-spacing: -0.01em; }
   .masthead p { margin: 6px 0 0; color: var(--ink-soft); max-width: 58ch; }
+
+  /* The staff side is deliberately plainer than the worker's door. */
+  .staff { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--rule); }
+  .staff h2 { margin: 0 0 4px; font-size: 18px; font-weight: 600; }
+  .staff p.hint { margin: 0 0 14px; color: var(--ink-soft); font-size: 14px; max-width: 52ch; }
 </style>
 </head>
 <body>
@@ -42,7 +47,7 @@
          hears the worker back.</p>
     </header>
 
-    <a class="door floor" href="machines.html?role=worker">
+    <a class="door floor" href="machines.html">
       <span class="icon"><i data-lucide="mic" style="width:34px;height:34px"></i></span>
       <span>
         <h2 lang="hi">कामगार</h2>
@@ -50,22 +55,53 @@
       </span>
     </a>
 
-    <a class="door" href="machines.html?role=supervisor">
-      <span class="icon"><i data-lucide="clipboard-list"></i></span>
-      <span>
-        <h2>Supervisor</h2>
-        <p>Add a machine, or speak its procedure to turn into cards.</p>
-      </span>
-    </a>
+    <section class="staff">
+      <h2>Supervisor or manager</h2>
+      <p class="hint">Workers do not sign in. Staff do, so that a card is only written by the
+         person who runs that line.</p>
 
-    <a class="door" href="inbox.html">
-      <span class="icon"><i data-lucide="inbox"></i></span>
-      <span>
-        <h2>Manager</h2>
-        <p>Read what workers reported, reply by voice, approve card changes.</p>
-      </span>
-    </a>
+      <form id="loginForm">
+        <div class="row">
+          <input id="personId" type="number" min="1" required placeholder="Your id" class="field" style="width:120px" />
+          <input id="pin" type="password" inputmode="numeric" required placeholder="PIN" class="field grow" />
+          <button class="btn">Sign in</button>
+        </div>
+      </form>
+
+      <div id="errorBox" class="alert hidden" style="margin-top:12px"></div>
+    </section>
   </div>
-<script>lucide.createIcons();</script>
+
+<script src="app.js"></script>
+<script>
+const errorBox = document.getElementById('errorBox');
+
+// Already signed in? Skip straight to where that role works.
+const who = session();
+if (who) location.replace(homeFor(who.role));
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  errorBox.classList.add('hidden');
+  const res = await fetch(`${API_BASE}/api/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      person_id: Number(document.getElementById('personId').value),
+      pin: document.getElementById('pin').value,
+    }),
+  });
+  if (!res.ok) {
+    errorBox.textContent = res.status === 401 ? 'Wrong id or PIN.' : `Sign-in failed: ${await res.text()}`;
+    errorBox.classList.remove('hidden');
+    return;
+  }
+  const staff = await res.json();
+  saveSession(staff);
+  location.href = homeFor(staff.role);
+});
+
+lucide.createIcons();
+</script>
 </body>
 </html>

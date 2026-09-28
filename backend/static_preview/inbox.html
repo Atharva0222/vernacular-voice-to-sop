@@ -77,16 +77,8 @@
       </select>
       <span class="spacer"></span>
       <span id="whoami" class="plate hidden"></span>
+      <button type="button" id="signOut" class="btn link">Sign out</button>
     </div>
-
-    <form id="loginForm" class="block hidden">
-      <h2>Sign in to read reports</h2>
-      <div class="row">
-        <input id="personId" type="number" min="1" required placeholder="Your person id" class="field" style="width:150px" />
-        <input id="secret" type="password" required placeholder="Server secret" class="field grow" />
-        <button class="btn">Sign in</button>
-      </div>
-    </form>
 
     <div id="errorBox" class="alert hidden"></div>
     <section id="edits"></section>
@@ -99,50 +91,24 @@ const KIND = { machine: 'Machine fault', sop: 'Card is wrong', understanding: 'N
 const STATUS = { open: 'Open', acknowledged: 'Acknowledged', resolved: 'Resolved',
                  received: 'Still processing', failed: 'Failed' };
 
-const TOKEN_KEY = 'inboxToken';
 const list = document.getElementById('list');
 const edits = document.getElementById('edits');
-const loginForm = document.getElementById('loginForm');
 const whoami = document.getElementById('whoami');
 const errorBox = document.getElementById('errorBox');
 
-function token() {
-  try { return sessionStorage.getItem(TOKEN_KEY); } catch { return null; }
-}
-function authHeaders() {
-  return { Authorization: `Bearer ${token()}` };
-}
+// Reading reports is for managers and plant heads. Sign-in itself lives on index.html.
+const staff = requireRole('manager', 'plant_head');
+
 function showError(msg) {
   errorBox.textContent = msg;
   errorBox.classList.remove('hidden');
 }
 
-function showLogin(msg) {
-  try { sessionStorage.removeItem(TOKEN_KEY); } catch {}
-  loginForm.classList.remove('hidden');
-  whoami.classList.add('hidden');
-  list.replaceChildren();
-  edits.replaceChildren();
-  if (msg) showError(msg);
-}
-
-loginForm.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const res = await fetch(`${API_BASE}/api/login`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ person_id: Number(document.getElementById('personId').value),
-                           secret: document.getElementById('secret').value }),
-  });
-  if (!res.ok) return showError(`Sign-in failed: ${await res.text()}`);
-  const { token: t, name, role } = await res.json();
-  try { sessionStorage.setItem(TOKEN_KEY, t); } catch {}
-  errorBox.classList.add('hidden');
-  loginForm.classList.add('hidden');
-  whoami.textContent = `${name}, ${role.replace('_', ' ')}`;
+if (staff) {
+  whoami.textContent = `${staff.name}, ${staff.role.replace('_', ' ')}`;
   whoami.classList.remove('hidden');
-  load();
-});
+  document.getElementById('signOut').addEventListener('click', signOut);
+}
 
 function plate(text, kind) {
   return `<span class="plate${kind ? ' ' + kind : ''}">${text}</span>`;
@@ -223,19 +189,16 @@ async function load() {
   const kind = document.getElementById('kindFilter').value;
   if (status) params.set('status', status);
   if (kind) params.set('kind', kind);
-  if (!token()) return showLogin();
 
-  const res = await fetch(`${API_BASE}/api/reports?${params}`, { headers: authHeaders() });
-  if (res.status === 401 || res.status === 403) {
-    return showLogin(res.status === 403
-      ? 'Supervisors cannot read worker reports. Sign in as a manager.'
-      : 'That session has ended. Sign in again.');
+  let reports;
+  try {
+    // apiAuth signs the caller out and returns to index.html on an expired session.
+    reports = await apiAuth(`/api/reports?${params}`);
+  } catch (err) {
+    return showError(`Loading reports failed: ${err.message}`);
   }
-  if (!res.ok) return showError(`Loading reports failed: ${await res.text()}`);
-
-  const reports = await res.json();
-  const editsRes = await fetch(`${API_BASE}/api/step-edits`, { headers: authHeaders() });
-  if (editsRes.ok) edits.replaceChildren(...(await editsRes.json()).map(renderEdit));
+  errorBox.classList.add('hidden');
+  edits.replaceChildren(...(await apiAuth('/api/step-edits')).map(renderEdit));
   list.replaceChildren(...reports.map(renderReport));
   if (!reports.length) {
     list.innerHTML = '<div class="block empty"><p>Nothing waiting for you.</p>'
@@ -246,7 +209,7 @@ async function load() {
 
 document.getElementById('statusFilter').addEventListener('change', load);
 document.getElementById('kindFilter').addEventListener('change', load);
-load();
+if (staff) load();
 lucide.createIcons();
 </script>
 </body>
