@@ -3,6 +3,9 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 
 # Secrets and local config
 .env
@@ -13,8 +16,11 @@ __pycache__/
 *.db
 *.sqlite3
 backend/scripts/clips/
-backend/static_preview/*.mp3
 backend/build.log
+
+# Frontend: dependencies and build output, not source
+backend/frontend/node_modules/
+backend/frontend/dist/
 
 # Tooling scratch
 .playwright-mcp/

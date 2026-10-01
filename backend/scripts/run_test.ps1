@@ -24,6 +24,18 @@ $python = Join-Path $backend ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { throw "No virtualenv at .venv - create it and install requirements.txt" }
 if (-not (Test-Path (Join-Path $backend ".env"))) { throw "No backend\.env - copy .env.example and set V2S_AUTH_SECRET" }
 
+# The backend tolerates a missing frontend/dist (logs a warning, /preview is just
+# unavailable), but this is the manual browser walkthrough, so build it if needed.
+$frontendDist = Join-Path $backend "frontend\dist"
+if (-not (Test-Path $frontendDist)) {
+    Write-Host "frontend\dist missing - building it (one-time)..."
+    Push-Location (Join-Path $backend "frontend")
+    try {
+        npm install
+        npm run build
+    } finally { Pop-Location }
+}
+
 $certs = Join-Path $backend ".venv\windows-roots.pem"
 if (Test-Path $certs) {
     $env:REQUESTS_CA_BUNDLE = $certs
@@ -71,8 +83,8 @@ try {
 
     if ($Manual) {
         Write-Host ""
-        Write-Host "worker cards: $base/preview/index.html"
-        Write-Host "manager inbox: $base/preview/inbox.html"
+        Write-Host "worker cards: $base/preview/"
+        Write-Host "manager inbox: $base/preview/#/inbox"
         Write-Host "press Ctrl+C to stop"
         while (-not $server.HasExited) { Start-Sleep -Seconds 2 }
         exit 0

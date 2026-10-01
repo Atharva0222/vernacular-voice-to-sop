@@ -1,0 +1,95 @@
+@import "tailwindcss";
+
+@theme {
+  /* Neutrals */
+  --color-canvas: #f7f8fb;
+  --color-surface: #ffffff;
+  --color-ink: #0f172a;
+  --color-ink-soft: #64748b;
+  --color-ink-faint: #94a3b8;
+  --color-border: #e9ebf3;
+  --color-border-strong: #d7dbe8;
+
+  /* Brand: the one gradient, used for primary actions and emphasis */
+  --color-primary: #6366f1;
+  --color-primary-dark: #4f46e5;
+  --color-primary-light: #eef0fe;
+  --color-primary-to: #8b5cf6;
+
+  /* Semantic status colors (kept from the plant-floor ISO palette, rendered as soft pills) */
+  --color-info: #0284c7;
+  --color-info-bg: #f0f9ff;
+  --color-safe: #16a34a;
+  --color-safe-bg: #f0fdf4;
+  --color-caution: #d97706;
+  --color-caution-bg: #fffbeb;
+  --color-stop: #dc2626;
+  --color-stop-bg: #fef2f2;
+  --color-violet: #7c3aed;
+  --color-violet-bg: #f5f3ff;
+
+  /* Type */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-devanagari: "Mukta", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Elevation */
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 2px 6px -2px rgba(15, 23, 42, 0.06), 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-md: 0 8px 20px -6px rgba(15, 23, 42, 0.1), 0 2px 6px -2px rgba(15, 23, 42, 0.05);
+  --shadow-lg: 0 20px 40px -12px rgba(15, 23, 42, 0.16), 0 4px 10px -4px rgba(15, 23, 42, 0.06);
+  --shadow-glow: 0 10px 30px -6px rgba(99, 102, 241, 0.4);
+
+  --animate-breathe: breathe 1.4s ease-in-out infinite;
+  --animate-rise: rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+
+@keyframes breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.06);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-canvas);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+.lang-dev {
+  font-family: var(--font-devanagari);
+}
+
+::selection {
+  background: var(--color-primary-light);
+  color: var(--color-primary-dark);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -3,4 +3,5 @@ __pycache__
 *.pyc
 .env
 .git
-static_preview/*.mp3
+frontend/node_modules
+frontend/dist

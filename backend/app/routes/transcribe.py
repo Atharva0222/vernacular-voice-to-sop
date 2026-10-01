@@ -1,11 +1,12 @@
 import uuid
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app import asr, auth
 from app.config import settings
+from app.limiter import limiter
 from app.schemas import TranscribeResponse
 
 router = APIRouter()
@@ -15,10 +16,12 @@ _ALLOWED_LANGS = {"hi", "mr", "auto"}
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
+@limiter.limit("30/minute")
 def transcribe_audio(
+    request: Request,
     person: Author,
     audio: UploadFile = File(...),
-    language: Optional[str] = Form("auto"),
+    language: str | None = Form("auto"),
 ) -> TranscribeResponse:
     """Sync def so FastAPI dispatches this CPU-bound work to its threadpool
     instead of blocking the single asyncio event loop."""

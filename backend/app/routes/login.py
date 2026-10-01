@@ -1,13 +1,15 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 
 from app import auth, db
+from app.limiter import limiter
 from app.schemas import LoginRequest, LoginResponse
 
 router = APIRouter()
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(req: LoginRequest) -> LoginResponse:
+@limiter.limit("10/minute")
+def login(request: Request, req: LoginRequest) -> LoginResponse:
     """Issue a session token for a person who knows their own PIN."""
     with db.connect() as conn:
         person = conn.execute(

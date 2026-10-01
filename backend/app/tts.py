@@ -11,7 +11,7 @@ _VOICE_BY_LANG = {
 
 
 def _cache_path(text: str, voice: str):
-    key = hashlib.sha256(f"{voice}::{text}".encode("utf-8")).hexdigest()
+    key = hashlib.sha256(f"{voice}::{text}".encode()).hexdigest()
     return settings.tmp_dir / "audio_cache" / f"{key}.mp3", key
 
 

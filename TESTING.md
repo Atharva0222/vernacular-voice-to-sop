@@ -16,17 +16,17 @@ Open PowerShell in `backend/` and pick one:
 .\scripts\run_test.ps1             # no browser: runs every check for you, ~10 min
 ```
 
-Then open <http://localhost:8001/preview/index.html>. The worker walks straight in; staff sign
+Then open <http://localhost:8001/preview/>. The worker walks straight in; staff sign
 in with an id and PIN, and the role decides the screen. The pages are:
 
 | Page | Who it is for | What it does |
 |---|---|---|
-| `/preview/index.html` | everyone | The worker's door, and the staff sign-in |
-| `/preview/machines.html` | worker | Pick a machine, then read its cards |
-| `/preview/cards.html?machine=1` | worker | That machine's cards, plus one speak button to ask or report |
-| `/preview/machines.html` | supervisor | Signed in, the same page lists only their lines and can add a machine |
-| `/preview/create.html?machine=1` | supervisor | That machine's current cards, or record its first version |
-| `/preview/inbox.html` | manager | Reports, replies, and card changes to approve |
+| `/preview/` | everyone | The worker's door, and the staff sign-in |
+| `/preview/#/machines` | worker | Pick a machine, then read its cards |
+| `/preview/#/cards?machine=1` | worker | That machine's cards, plus one speak button to ask or report |
+| `/preview/#/machines` | supervisor | Signed in, the same page lists only their lines and can add a machine |
+| `/preview/#/create?machine=1` | supervisor | That machine's current cards, or record its first version |
+| `/preview/#/inbox` | manager | Reports, replies, and card changes to approve |
 
 Opening a staff page without signing in bounces you back to the sign-in.
 
@@ -82,7 +82,7 @@ Everything else happens in the browser.
 
 ## 2. Make the SOP cards (the supervisor's part)
 
-Open <http://localhost:8001/preview/index.html> — the home page. Sign in under
+Open <http://localhost:8001/preview/> — the home page. Sign in under
 **Supervisor or manager** as **id `1`, PIN `1111`** (Demo Supervisor, Line A). You land on the
 machine list, which shows only Line A: signing in as someone else would show a different list.
 
@@ -118,7 +118,7 @@ Press a speaker button — the card should read itself back to you in Hindi.
 This SOP is saved against machine 1. The worker reaches the same cards from the home page by
 choosing **Worker** then **Press 1**, or directly at:
 
-<http://localhost:8001/preview/cards.html?machine=1>
+<http://localhost:8001/preview/#/cards?machine=1>
 
 ## 3. Speak to the machine (the worker's part)
 
@@ -159,7 +159,7 @@ voice and recognise who it was. Only the cleaned text survives.
 
 ## 4. Read them as the manager
 
-Open <http://localhost:8001/preview/inbox.html> in a new tab.
+Open <http://localhost:8001/preview/#/inbox> in a new tab.
 
 It sends you to the sign-in if you are not already a manager there. Sign in as **id `2`,
 PIN `2222`** (Demo Manager, Line A).
@@ -198,11 +198,11 @@ had to read anything, and the loop is closed.
 
 This is the promise the whole feature rests on, so test it directly.
 
-Close the inbox tab and open <http://localhost:8001/preview/index.html> in a fresh one — a
+Close the inbox tab and open <http://localhost:8001/preview/> in a fresh one — a
 sign-in only lasts as long as the tab. Sign in as **id `1`, PIN `1111`**, Demo Supervisor.
 
 **What should happen:** you land on the machine list, not the inbox, and going to
-`/preview/inbox.html` by hand bounces you straight back out. The supervisor cannot see a single
+`/preview/#/inbox` by hand bounces you straight back out. The supervisor cannot see a single
 report, not even their own line's.
 
 Then sign in as **id `5`, PIN `5555`** (Demo Manager B, the other line): they reach the inbox
@@ -222,7 +222,7 @@ three altogether. Wait for them to process.
 and the proposed new text, with **Approve** and **Reject**.
 
 Press **Approve**, then reload the worker page
-(<http://localhost:8001/preview/cards.html?machine=1>).
+(<http://localhost:8001/preview/#/cards?machine=1>).
 
 **What should happen:** the बोल्ट card now says *उन्नीस*, not *सत्रह*. Three workers said the
 card was wrong, and the card changed. The old version is still in the database for audit.

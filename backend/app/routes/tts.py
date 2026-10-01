@@ -1,14 +1,16 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app import tts
+from app.limiter import limiter
 from app.schemas import TTSRequest, TTSResponse
 
 router = APIRouter()
 
 
 @router.post("/tts", response_model=TTSResponse)
-async def generate_tts(req: TTSRequest) -> TTSResponse:
+@limiter.limit("30/minute")
+async def generate_tts(request: Request, req: TTSRequest) -> TTSResponse:
     if not req.text.strip():
         raise HTTPException(400, "text must not be empty")
     key, _path = await tts.synthesize(req.text, req.language)

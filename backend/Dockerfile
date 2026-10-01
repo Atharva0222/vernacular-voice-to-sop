@@ -1,3 +1,10 @@
+FROM node:22-slim AS frontend-build
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ ./
+RUN npm run build
+
 FROM python:3.12-slim
 
 # ffmpeg: librosa needs it to decode mp3 (uploaded audio, edge-tts output).
@@ -12,7 +19,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
-COPY static_preview ./static_preview
+COPY --from=frontend-build /app/frontend/dist ./frontend/dist
 
 # hf-xet (huggingface_hub's chunked transfer backend) hangs indefinitely on
 # some networks - must be set before the download step below, not after.

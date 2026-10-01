@@ -3,12 +3,13 @@ import logging
 import secrets
 import uuid
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app import asr, auth, corrections, db, guidance, routing, triage, tts
 from app.config import settings
+from app.limiter import limiter
 from app.routes.sop import get_sop
 from app.schemas import Report, ReportCreated, ReportKind, ReportReceipt, ReportStatus, ReportUpdate
 
@@ -82,11 +83,13 @@ def process_question(report_id: int, audio_path: Path, sop_id: int, language: st
 
 
 @router.post("/report", response_model=ReportCreated, status_code=202)
+@limiter.limit("20/minute")
 def create_report(
+    request: Request,
     background: BackgroundTasks,
     audio: UploadFile = File(...),
     sop_id: int = Form(...),
-    step_id: Optional[int] = Form(None),
+    step_id: int | None = Form(None),
     language: str = Form("auto"),
 ) -> ReportCreated:
     """Accept a worker's voice report and return at once; ASR and triage run in the background.
@@ -108,7 +111,9 @@ def create_report(
 
 
 @router.post("/ask", response_model=ReportCreated, status_code=202)
+@limiter.limit("20/minute")
 def ask(
+    request: Request,
     background: BackgroundTasks,
     audio: UploadFile = File(...),
     sop_id: int = Form(...),
