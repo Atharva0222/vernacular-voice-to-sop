@@ -22,3 +22,6 @@ backend/build.log
 .idea/
 .DS_Store
 Thumbs.db
+
+# Open-source lab workspace (upstream clones, not part of this project)
+rospl/
