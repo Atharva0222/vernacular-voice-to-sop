@@ -3,6 +3,7 @@ import { motion } from 'framer-motion'
 import { Check, Inbox as InboxIcon, X } from 'lucide-react'
 import { useState } from 'react'
 import { BackLink, PageHeader, Shell, WhoAmI } from '../components/layout'
+import { StaffNav } from '../components/StaffNav'
 import { Badge, Button, EmptyState, Field, Select, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { apiAuth } from '../lib/api'
@@ -65,7 +66,12 @@ export default function Inbox() {
       <PageHeader
         title="Worker reports"
         subtitle="What the cards could not answer, in the words of the people running your lines. No names are attached, and the recordings are gone."
-        right={<WhoAmI name={staff.name} role={staff.role} />}
+        right={
+          <div className="flex items-center gap-3">
+            <StaffNav role={staff.role} />
+            <WhoAmI name={staff.name} role={staff.role} />
+          </div>
+        }
       />
 
       <div className="mb-6 flex flex-wrap gap-3">

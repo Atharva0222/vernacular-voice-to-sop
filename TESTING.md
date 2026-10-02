@@ -63,20 +63,22 @@ Add `-Fresh` to start from an empty database, or `-Port 8002` to use another por
 
 Open <http://localhost:8001/api/health> in the browser. You should see `{"status":"ok"}`.
 
-The first run creates the database and fills it with a demo factory:
+The first run seeds a demo factory directly in your Supabase project (idempotent - reruns
+against the same project leave it alone):
 
-| Who / what | id | PIN | Notes |
+| Who / what | Email | Password | Notes |
 |---|---|---|---|
-| Demo Supervisor (Line A) | 1 | `1111` | Must never be able to read reports |
-| Demo Manager (Line A) | 2 | `2222` | This is you, for most of the test |
-| Demo Plant Head | 3 | `3333` | Reports land here when a manager is too slow |
-| Demo Supervisor B (Line B) | 4 | `4444` | |
-| Demo Manager B (Line B) | 5 | `5555` | Should not see Line A's reports |
-| Press 1 (machine on Line A) | 1 | | |
-| Lathe 1 (machine on Line B) | 2 | | |
+| Demo Supervisor (Line A) | `e2e-person1@test.local` | `e2e-script-password-do-not-use-in-prod` | Must never be able to read reports |
+| Demo Manager (Line A) | `e2e-person2@test.local` | same | This is you, for most of the test |
+| Demo Plant Head | `e2e-person3@test.local` | same | Reports land here when a manager is too slow |
+| Demo Supervisor B (Line B) | `e2e-person4@test.local` | same | |
+| Demo Manager B (Line B) | `e2e-person5@test.local` | same | Should not see Line A's reports |
+| Press 1 (machine on Line A) | *(no login - pick it from the machine list)* | | |
+| Lathe 1 (machine on Line B) | *(no login - pick it from the machine list)* | | |
 
-Those PINs are seeded only into a brand-new database, so a real deployment never gets them.
-Workers have no id and no PIN anywhere in this table, which is the point.
+Those accounts are seeded by `scripts/e2e.py`'s `ensure_demo_org()` (see Supabase Auth section
+of `CLAUDE.md`), only into a project with no existing data, so a real deployment never gets
+them. Workers have no login anywhere in this table, which is the point.
 
 Everything else happens in the browser.
 

@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
-    One command to test the whole loop: sets the environment, starts the server on a
-    scratch database, waits for health, and runs the end-to-end checks.
+    One command to test the whole loop: applies pending migrations, starts the server
+    against the Supabase project in backend\.env, waits for health, and runs the
+    end-to-end checks (which seed their own demo org on first run - see scripts\e2e.py).
 
 .EXAMPLE
-    .\scripts\run_test.ps1            # start server, run scripts\e2e.py, stop server
+    .\scripts\run_test.ps1            # migrate, start server, run scripts\e2e.py, stop server
     .\scripts\run_test.ps1 -Manual    # start server and leave it up for the browser walkthrough
-    .\scripts\run_test.ps1 -Fresh     # wipe the scratch database first
+    .\scripts\run_test.ps1 -Fresh     # wipe local audio scratch files first (tmp uploads/cache only - not the database, which is Supabase's, not a local scratch file anymore)
 #>
 [CmdletBinding()]
 param(
@@ -22,7 +23,7 @@ Set-Location $backend
 
 $python = Join-Path $backend ".venv\Scripts\python.exe"
 if (-not (Test-Path $python)) { throw "No virtualenv at .venv - create it and install requirements.txt" }
-if (-not (Test-Path (Join-Path $backend ".env"))) { throw "No backend\.env - copy .env.example and set V2S_AUTH_SECRET" }
+if (-not (Test-Path (Join-Path $backend ".env"))) { throw "No backend\.env - copy .env.example and set the V2S_DATABASE_URL/V2S_SUPABASE_* values (see `supabase status` for a local `supabase start` stack)" }
 
 # The backend tolerates a missing frontend/dist (logs a warning, /preview is just
 # unavailable), but this is the manual browser walkthrough, so build it if needed.
@@ -42,6 +43,8 @@ if (Test-Path $certs) {
     $env:SSL_CERT_FILE = $certs
 }
 
+# Audio upload/cache scratch space only now - the database lives in Supabase, not here, so
+# -Fresh no longer wipes any data, just local temp files.
 $scratch = Join-Path $env:TEMP "v2s-test"
 if ($Fresh -and (Test-Path $scratch)) {
     Remove-Item -Recurse -Force $scratch
@@ -49,7 +52,10 @@ if ($Fresh -and (Test-Path $scratch)) {
 }
 New-Item -ItemType Directory -Force $scratch | Out-Null
 $env:V2S_TMP_DIR = $scratch
-$env:V2S_DB_PATH = Join-Path $scratch "test.db"
+
+Write-Host "applying pending migrations..."
+& $python -m alembic upgrade head
+if ($LASTEXITCODE -ne 0) { throw "alembic upgrade head failed - see output above" }
 
 if (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue) {
     throw "port $Port is already in use - stop that server, or pass -Port"
@@ -80,6 +86,10 @@ try {
     }
     if (-not $ready) { throw "server did not become healthy - see $log.err" }
     Write-Host "server healthy"
+
+    Write-Host "seeding the demo org (no-op if one already exists)..."
+    & $python -c "import sys; sys.path.insert(0, 'scripts'); import e2e; e2e.ensure_demo_org()"
+    if ($LASTEXITCODE -ne 0) { throw "demo org seeding failed - see output above" }
 
     if ($Manual) {
         Write-Host ""

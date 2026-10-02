@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from sqlalchemy import text
 
 from app import asr, auth, corrections, db, guidance, routing, triage, tts
 from app.config import settings
@@ -23,23 +24,32 @@ _ALLOWED_LANGS = {"hi", "mr", "auto"}
 def _transcribe_and_discard(audio_path: Path, language: str) -> tuple[str, str]:
     """Voice in, text out. The recording is deleted either way, so it can never be played back."""
     try:
-        text, detected = asr.transcribe(str(audio_path), None if language == "auto" else language)
+        text_out, detected = asr.transcribe(str(audio_path), None if language == "auto" else language)
     finally:
         audio_path.unlink(missing_ok=True)
-    if not text:
+    if not text_out:
         raise ValueError("transcription produced empty text")
-    return text, detected
+    return text_out, detected
 
 
-def _send_to_manager(report_id: int, text: str, detected: str, sop_id: int, step_hint: int | None) -> None:
+def _send_to_manager(report_id: int, text_in: str, detected: str, sop_id: int, step_hint: int | None) -> None:
     """Triage against the SOP, then route, cluster and draft a card fix as usual."""
-    result = asyncio.run(triage.triage(get_sop(sop_id).steps, text, detected, step_hint))
-    with db.connect() as conn:
+    result = asyncio.run(triage.triage(get_sop(sop_id).steps, text_in, detected, step_hint))
+    with db.connect_service() as conn:
         conn.execute(
-            "UPDATE reports SET status = 'open', language = ?, kind = ?, summary = ?, step_id = ?, "
-            "severity = ?, suggested_change = ? WHERE id = ?",
-            (detected, result.kind, result.summary, result.step_id, result.severity,
-             result.suggested_change, report_id),
+            text(
+                "UPDATE reports SET status = 'open', language = :language, kind = :kind, summary = :summary, "
+                "step_id = :step_id, severity = :severity, suggested_change = :suggested_change WHERE id = :id"
+            ),
+            {
+                "language": detected,
+                "kind": result.kind,
+                "summary": result.summary,
+                "step_id": result.step_id,
+                "severity": result.severity,
+                "suggested_change": result.suggested_change,
+                "id": report_id,
+            },
         )
         routing.route(conn, report_id)
         routing.cluster(conn, report_id)
@@ -48,15 +58,18 @@ def _send_to_manager(report_id: int, text: str, detected: str, sop_id: int, step
 
 def _fail(report_id: int, exc: Exception) -> None:
     log.exception("report %s failed", report_id)
-    with db.connect() as conn:
-        conn.execute("UPDATE reports SET status = 'failed', error = ? WHERE id = ?", (str(exc), report_id))
+    with db.connect_service() as conn:
+        conn.execute(
+            text("UPDATE reports SET status = 'failed', error = :error WHERE id = :id"),
+            {"error": str(exc), "id": report_id},
+        )
 
 
 def process_report(report_id: int, audio_path: Path, sop_id: int, step_hint: int | None, language: str) -> None:
     """Transcribe, delete the audio, then triage against the SOP. Runs in the threadpool."""
     try:
-        text, detected = _transcribe_and_discard(audio_path, language)
-        _send_to_manager(report_id, text, detected, sop_id, step_hint)
+        text_out, detected = _transcribe_and_discard(audio_path, language)
+        _send_to_manager(report_id, text_out, detected, sop_id, step_hint)
     except Exception as exc:
         _fail(report_id, exc)
 
@@ -66,17 +79,19 @@ def process_question(report_id: int, audio_path: Path, sop_id: int, language: st
 
     An answered question keeps no text: only the spoken answer the worker plays back."""
     try:
-        text, detected = _transcribe_and_discard(audio_path, language)
-        answer = asyncio.run(guidance.answer_from_sop(get_sop(sop_id).steps, text, detected))
+        text_out, detected = _transcribe_and_discard(audio_path, language)
+        answer = asyncio.run(guidance.answer_from_sop(get_sop(sop_id).steps, text_out, detected))
         if not answer.covered_by_sop:
-            return _send_to_manager(report_id, text, detected, sop_id, None)
+            return _send_to_manager(report_id, text_out, detected, sop_id, None)
 
         audio_key, _ = asyncio.run(tts.synthesize(answer.answer, detected))
-        with db.connect() as conn:
+        with db.connect_service() as conn:
             conn.execute(
-                "UPDATE reports SET status = 'resolved', language = ?, step_id = ?, "
-                "answered_by_sop = 1, ack_audio_key = ? WHERE id = ?",
-                (detected, answer.step_id, audio_key, report_id),
+                text(
+                    "UPDATE reports SET status = 'resolved', language = :language, step_id = :step_id, "
+                    "answered_by_sop = TRUE, ack_audio_key = :ack_audio_key WHERE id = :id"
+                ),
+                {"language": detected, "step_id": answer.step_id, "ack_audio_key": audio_key, "id": report_id},
             )
     except Exception as exc:
         _fail(report_id, exc)
@@ -103,9 +118,12 @@ def create_report(
     audio_path = settings.tmp_dir / f"report-{uuid.uuid4().hex}{suffix}"
     audio_path.write_bytes(audio.file.read())
 
-    with db.connect() as conn:
+    with db.connect_service() as conn:
         receipt = secrets.token_urlsafe(16)
-        report_id = conn.execute("INSERT INTO reports (sop_id, receipt) VALUES (?, ?)", (sop_id, receipt)).lastrowid
+        report_id = conn.execute(
+            text("INSERT INTO reports (sop_id, receipt) VALUES (:sop_id, :receipt) RETURNING id"),
+            {"sop_id": sop_id, "receipt": receipt},
+        ).scalar_one()
     background.add_task(process_report, report_id, audio_path, sop_id, step_id, language)
     return ReportCreated(report_id=report_id, receipt=receipt, status="received")
 
@@ -129,9 +147,12 @@ def ask(
     audio_path = settings.tmp_dir / f"report-{uuid.uuid4().hex}{suffix}"
     audio_path.write_bytes(audio.file.read())
 
-    with db.connect() as conn:
+    with db.connect_service() as conn:
         receipt = secrets.token_urlsafe(16)
-        report_id = conn.execute("INSERT INTO reports (sop_id, receipt) VALUES (?, ?)", (sop_id, receipt)).lastrowid
+        report_id = conn.execute(
+            text("INSERT INTO reports (sop_id, receipt) VALUES (:sop_id, :receipt) RETURNING id"),
+            {"sop_id": sop_id, "receipt": receipt},
+        ).scalar_one()
     background.add_task(process_question, report_id, audio_path, sop_id, language)
     return ReportCreated(report_id=report_id, receipt=receipt, status="received")
 
@@ -139,9 +160,11 @@ def ask(
 @router.get("/receipt/{receipt}", response_model=ReportReceipt)
 def get_receipt(receipt: str) -> ReportReceipt:
     """Worker-facing: only processing status and the manager's voiced reply, nothing about the report."""
-    with db.connect() as conn:
-        row = conn.execute("SELECT status, ack_audio_key, answered_by_sop FROM reports WHERE receipt = ?",
-                           (receipt,)).fetchone()
+    with db.connect_service() as conn:
+        row = conn.execute(
+            text("SELECT status, ack_audio_key, answered_by_sop FROM reports WHERE receipt = :receipt"),
+            {"receipt": receipt},
+        ).mappings().fetchone()
     if not row:
         raise HTTPException(404, "receipt not found")
     return ReportReceipt(**row)
@@ -150,8 +173,10 @@ def get_receipt(receipt: str) -> ReportReceipt:
 def _visible_report(report_id: int, person: dict) -> Report:
     """Fetch a report the reader may see; others are 404 so their existence does not leak."""
     where, params = auth.scope_sql(person)
-    with db.connect() as conn:
-        row = conn.execute(f"SELECT * FROM report_view WHERE id = :id AND {where}", {"id": report_id, **params}).fetchone()
+    with db.connect(person) as conn:
+        row = conn.execute(
+            text(f"SELECT * FROM report_view WHERE id = :id AND {where}"), {"id": report_id, **params}
+        ).mappings().fetchone()
     if not row:
         raise HTTPException(404, "report not found")
     return Report(**row)
@@ -167,12 +192,20 @@ def list_reports(person: Reader, status: ReportStatus | None = None, kind: Repor
     """Manager inbox for the caller's own lines: confirmed clusters first, then newest.
     Text only: report audio is never kept."""
     where, params = auth.scope_sql(person)
-    with db.connect() as conn:
+    with db.connect(person) as conn:
         rows = conn.execute(
-            f"SELECT * FROM report_view WHERE {where} AND (:status IS NULL OR status = :status) "
-            "AND (:kind IS NULL OR kind = :kind) ORDER BY confirmed DESC, created_at DESC, id DESC",
+            # CAST(...): an untyped NULL parameter used only in `x IS NULL` gives psycopg's
+            # extended protocol no type to infer (unlike SQLite, which is dynamically typed) -
+            # confirmed by hitting `AmbiguousParameter` against a real Postgres instance. A
+            # trailing `::text` short-cast after a bind param isn't parsed correctly by
+            # SQLAlchemy's text() either (also confirmed live), hence CAST(...) instead.
+            text(
+                f"SELECT * FROM report_view WHERE {where} "
+                "AND (CAST(:status AS text) IS NULL OR status = :status) "
+                "AND (CAST(:kind AS text) IS NULL OR kind = :kind) ORDER BY confirmed DESC, created_at DESC, id DESC"
+            ),
             {"status": status, "kind": kind, **params},
-        ).fetchall()
+        ).mappings().fetchall()
     return [Report(**r) for r in rows]
 
 
@@ -186,9 +219,9 @@ async def update_report(report_id: int, req: ReportUpdate, person: Reader) -> Re
     if req.response_text:
         fields["ack_audio_key"], _ = await tts.synthesize(req.response_text, report.language)
     if fields:
-        with db.connect() as conn:
+        with db.connect(person) as conn:
             conn.execute(
-                f"UPDATE reports SET {', '.join(f'{k} = :{k}' for k in fields)} WHERE id = :id",
+                text(f"UPDATE reports SET {', '.join(f'{k} = :{k}' for k in fields)} WHERE id = :id"),
                 {**fields, "id": report_id},
             )
     return _visible_report(report_id, person)

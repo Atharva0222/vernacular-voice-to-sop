@@ -16,5 +16,28 @@ services:
         sync: false
       - key: HF_HUB_DISABLE_XET
         value: "1"
-      - key: V2S_AUTH_SECRET
-        generateValue: true
+      # Supabase Postgres - point at the Supavisor *session-mode* pooler, not transaction mode
+      # (transaction-mode pooling breaks psycopg3's prepared-statement cache).
+      - key: V2S_DATABASE_URL
+        sync: false
+      # Direct (unpooled) connection, used only by `alembic upgrade head` on boot - DDL and
+      # Alembic's advisory locks need session-level guarantees pgbouncer-style pooling doesn't
+      # reliably provide. Falls back to V2S_DATABASE_URL if left unset.
+      - key: V2S_DATABASE_MIGRATE_URL
+        sync: false
+      - key: V2S_SUPABASE_URL
+        sync: false
+      - key: V2S_SUPABASE_ANON_KEY
+        sync: false
+      # RLS-bypassing - server-only, never sent to the frontend. Used by the worker-facing
+      # routes (POST /report, /ask, GET /receipt, GET /machines, GET /machine/{id}/sop) and by
+      # the recruitment module's resume-upload-URL signing.
+      - key: V2S_SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      # Same values as above, but under the VITE_ prefix so the frontend build stage can read
+      # them - Vite inlines these into the bundle at Docker build time (see Dockerfile), not at
+      # container runtime, so both key sets are needed even though the values are identical.
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false

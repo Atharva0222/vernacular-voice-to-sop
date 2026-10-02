@@ -14,17 +14,18 @@ from app.config import settings  # noqa: E402
 # access to the values within the .ini file in use.
 config = context.config
 
-# Always target the same database the app itself is configured for (V2S_DB_PATH / .env),
-# so a migration run and the running app can never point at different files by accident.
-config.set_main_option("sqlalchemy.url", f"sqlite:///{settings.db_path}")
+# Migrations run against the direct (unpooled) connection, not the Supavisor pooler the app
+# uses at request time - DDL and Alembic's advisory locks need session-level guarantees
+# transaction-mode pgbouncer-style pooling doesn't reliably provide.
+config.set_main_option("sqlalchemy.url", settings.database_migrate_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# No ORM models here: the schema is managed as raw SQL (see app/db.py SCHEMA and
-# migrations/versions/0001_initial.py), so there is no metadata object for autogenerate.
+# No ORM models here: every revision (tables, views, RLS policies) is hand-written raw SQL
+# (see migrations/versions/), so there is no metadata object for autogenerate to diff against.
 target_metadata = None
 
 

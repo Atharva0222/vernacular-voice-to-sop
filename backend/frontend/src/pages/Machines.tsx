@@ -4,6 +4,7 @@ import { ArrowRight, Cog, Factory, Plus, X } from 'lucide-react'
 import { type FormEvent, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { BackLink, PageHeader, Shell, WhoAmI } from '../components/layout'
+import { StaffNav } from '../components/StaffNav'
 import { Button, EmptyState, Field, Select, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { apiAuth } from '../lib/api'
@@ -89,7 +90,14 @@ export default function Machines() {
           title={WORDS.title}
           subtitle={WORDS.subtitle}
           devanagari={!isSupervisor}
-          right={session && <WhoAmI name={session.name} role={session.role} />}
+          right={
+            session && (
+              <div className="flex items-center gap-3">
+                <StaffNav role={session.role} />
+                <WhoAmI name={session.name} role={session.role} />
+              </div>
+            )
+          }
         />
 
         {machinesQuery.isLoading && (

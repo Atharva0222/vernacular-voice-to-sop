@@ -1,28 +1,46 @@
 """End-to-end verification of the feature plan's checklist against a running server.
 
-Usage (from backend/, server running on :8001 against a scratch DB):
+Usage (from backend/, server running on :8001 against a scratch Supabase project/local stack):
     python scripts/e2e.py [http://localhost:8001]
 
 Needs a real LLM endpoint and the ASR models. Clips are synthesized once with
-edge-tts into scripts/clips/ and reused. Writes directly to the DB only where the
-checklist needs a backdated or repeated report, which no API can create.
+edge-tts into scripts/clips/ and reused. Writes directly to the DB (via the
+RLS-bypassing service-role connection, same as the app's own background tasks) only
+where the checklist needs a backdated or repeated report, which no API can create.
+
+Seeds its own demo org (plants/employees/profiles + matching Supabase Auth users) on
+first run if one isn't already there - this used to be db.init()'s job, but schema is
+Alembic-managed now (see CLAUDE.md's Database section) so nothing seeds data on boot.
 """
 import asyncio
+import secrets
 import sys
 import time
 from pathlib import Path
 
 import edge_tts
 import httpx
+from sqlalchemy import text
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from app import auth, corrections, db, routing  # noqa: E402
+from app import corrections, db, routing  # noqa: E402
 from app.config import settings  # noqa: E402
 
 BASE = (sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8001").rstrip("/")
 API = f"{BASE}/api"
 CLIPS = Path(__file__).resolve().parent / "clips"
 VOICE = "hi-IN-SwaraNeural"
+
+# id -> (email, name, role) for the demo org this script seeds and signs in as. Same ids the
+# checklist below hardcodes (bearer(1) is the supervisor on line 1, etc.) - keep them in sync.
+DEMO_PASSWORD = "e2e-script-password-do-not-use-in-prod"  # noqa: S105
+DEMO_PEOPLE = {
+    1: ("e2e-person1@test.local", "Demo Supervisor", "supervisor"),
+    2: ("e2e-person2@test.local", "Demo Manager", "manager"),
+    3: ("e2e-person3@test.local", "Demo Plant Head", "plant_head"),
+    4: ("e2e-person4@test.local", "Demo Supervisor B", "supervisor"),
+    5: ("e2e-person5@test.local", "Demo Manager B", "manager"),
+}
 
 NARRATION = [
     "मशीन चालू करने से पहले बिजली का स्विच बंद कर दें।",
@@ -56,9 +74,78 @@ def clip(name: str, text: str) -> Path:
     return path
 
 
+def _signup_or_signin(email: str) -> str:
+    """Create the demo auth user the first time this script runs against a given Supabase
+    project; on later runs it already exists, so fall back to signing in."""
+    r = client.post(
+        f"{settings.supabase_url}/auth/v1/signup",
+        headers={"apikey": settings.supabase_anon_key},
+        json={"email": email, "password": DEMO_PASSWORD},
+    )
+    if r.status_code != 200:
+        r = client.post(
+            f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+            headers={"apikey": settings.supabase_anon_key},
+            json={"email": email, "password": DEMO_PASSWORD},
+        )
+        r.raise_for_status()
+    return r.json()["user"]["id"]
+
+
+def ensure_demo_org() -> None:
+    """Seed plants/employees/lines/machines + matching Supabase Auth users/profiles, unless a
+    demo org already exists - idempotent so reruns against the same project are cheap. Schema no
+    longer auto-seeds on boot; see this file's module docstring.
+
+    Uses explicit ids (plant 1, employees 1-5, lines 1-2, machine 1) because the checklist below
+    hardcodes them (e.g. "a supervisor sees only their own lines" asserts `== [1]`) - this only
+    works against a genuinely empty database, matching this script's documented "scratch DB"
+    usage. Refuses to run against a database that already has other data, rather than silently
+    colliding with it.
+    """
+    with db.connect_service() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM plants")).scalar_one()
+        if count > 0:
+            return
+        plant_id = conn.execute(
+            text("INSERT INTO plants (id, name) OVERRIDING SYSTEM VALUE VALUES (1, 'E2E Demo Plant') RETURNING id")
+        ).scalar_one()
+        emp_ids = {}
+        for person_id, (email, name, role) in DEMO_PEOPLE.items():
+            emp_id = conn.execute(
+                text(
+                    "INSERT INTO employees (id, name, role, language, plant_id) "
+                    "OVERRIDING SYSTEM VALUE VALUES (:id, :name, :role, 'hi', :plant_id) RETURNING id"
+                ),
+                {"id": person_id, "name": name, "role": role, "plant_id": plant_id},
+            ).scalar_one()
+            emp_ids[person_id] = emp_id
+            uid = _signup_or_signin(email)
+            conn.execute(text("INSERT INTO profiles (id, employee_id) VALUES (:uid, :emp_id)"), {"uid": uid, "emp_id": emp_id})
+        conn.execute(
+            text(
+                "INSERT INTO lines (id, plant_id, name, supervisor_id, manager_id) OVERRIDING SYSTEM VALUE VALUES "
+                "(1, :p, 'Line A', :s1, :m1), (2, :p, 'Line B', :s2, :m2)"
+            ),
+            {"p": plant_id, "s1": emp_ids[1], "m1": emp_ids[2], "s2": emp_ids[4], "m2": emp_ids[5]},
+        )
+        conn.execute(
+            text("INSERT INTO machines (id, line_id, name) OVERRIDING SYSTEM VALUE VALUES (1, 1, 'Press 1')")
+        )
+        # OVERRIDING SYSTEM VALUE doesn't advance the identity sequence, so later auto-generated
+        # inserts (this script creates a SOP, reports, etc.) must not collide with the ids above.
+        for seq, seq_max in (("plants_id_seq", 1), ("employees_id_seq", 5), ("lines_id_seq", 2), ("machines_id_seq", 1)):
+            conn.execute(text(f"SELECT setval('{seq}', :n)"), {"n": seq_max})
+
+
 def token(person_id: int) -> str:
-    r = client.post(f"{API}/login", json={"person_id": person_id, "pin": db.DEMO_PINS[person_id]})
-    return r.raise_for_status().json()["token"]
+    email, _, _ = DEMO_PEOPLE[person_id]
+    r = client.post(
+        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+        headers={"apikey": settings.supabase_anon_key},
+        json={"email": email, "password": DEMO_PASSWORD},
+    )
+    return r.raise_for_status().json()["access_token"]
 
 
 def bearer(person_id: int) -> dict:
@@ -114,8 +201,8 @@ def phase1_sop(author: dict) -> dict:
 def phase3_reports(sop: dict, headers: dict) -> dict:
     """Three complaints classify correctly, and their audio is gone from disk."""
     created = {}
-    for kind, text in COMPLAINTS.items():
-        path = clip(f"c_{kind}", text)
+    for kind, complaint_text in COMPLAINTS.items():
+        path = clip(f"c_{kind}", complaint_text)
         r = client.post(f"{API}/report", data={"sop_id": sop["id"], "language": "hi"},
                         files={"audio": (path.name, path.read_bytes(), "audio/mpeg")})
         created[kind] = r.raise_for_status().json()
@@ -170,12 +257,16 @@ def phase4_reply(report: dict, headers: dict) -> None:
 
 def phase6_escalation(report: dict, headers: dict) -> None:
     """A high-severity machine report past its SLA escalates to the plant head."""
-    with db.connect() as conn:
-        conn.execute("UPDATE reports SET status = 'open', kind = 'machine', severity = 'high', "
-                     "created_at = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-48 hours'), "
-                     "escalate_after = strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '-24 hours') WHERE id = ?",
-                     (report["id"],))
-        plant_head = conn.execute("SELECT id FROM people WHERE role = 'plant_head'").fetchone()["id"]
+    with db.connect_service() as conn:
+        conn.execute(
+            text(
+                "UPDATE reports SET status = 'open', kind = 'machine', severity = 'high', "
+                "created_at = now() - interval '48 hours', escalate_after = now() - interval '24 hours' "
+                "WHERE id = :id"
+            ),
+            {"id": report["id"]},
+        )
+        plant_head = conn.execute(text("SELECT id FROM employees WHERE role = 'plant_head'")).scalar_one()
     overdue = client.get(f"{API}/report/{report['id']}", headers=headers).json()
     check("phase 6: an overdue report escalates to the plant head",
           bool(overdue["escalated"]) and overdue["effective_assignee"] == plant_head,
@@ -186,13 +277,16 @@ def phase6_cluster(sop: dict, headers: dict) -> dict:
     """Three reports on the same machine, kind and step collapse into one confirmed cluster."""
     step = sop["steps"][min(2, len(sop["steps"]) - 1)]
     ids = []
-    with db.connect() as conn:
+    with db.connect_service() as conn:
         for _ in range(3):
             ids.append(conn.execute(
-                "INSERT INTO reports (sop_id, receipt, language, status, kind, step_id, severity, summary, "
-                "suggested_change) VALUES (?, hex(randomblob(8)), 'hi', 'open', 'sop', ?, 'medium', "
-                "'बोल्ट का नाप गलत है', 'उन्नीस नंबर का बोल्ट लगाकर प्लेट को कस दें।')",
-                (sop["id"], step["id"])).lastrowid)
+                text(
+                    "INSERT INTO reports (sop_id, receipt, language, status, kind, step_id, severity, summary, "
+                    "suggested_change) VALUES (:sop_id, :receipt, 'hi', 'open', 'sop', :step_id, 'medium', "
+                    "'बोल्ट का नाप गलत है', 'उन्नीस नंबर का बोल्ट लगाकर प्लेट को कस दें।') RETURNING id"
+                ),
+                {"sop_id": sop["id"], "receipt": secrets.token_hex(8), "step_id": step["id"]},
+            ).scalar_one())
         for report_id in ids:
             routing.route(conn, report_id)
             routing.cluster(conn, report_id)
@@ -205,12 +299,22 @@ def phase6_cluster(sop: dict, headers: dict) -> dict:
 
 
 def phase7_access(report_id: int) -> None:
-    """Sign-in is by PIN; a supervisor is refused the inbox; everyone is held to their own lines."""
-    wrong = client.post(f"{API}/login", json={"person_id": 2, "pin": "0000"})
-    check("phase 7: a wrong PIN is refused", wrong.status_code == 401, f"status={wrong.status_code}")
-    unknown = client.post(f"{API}/login", json={"person_id": 999, "pin": "0000"})
-    check("phase 7: an unknown id looks the same as a wrong PIN",
-          unknown.status_code == 401 and unknown.text == wrong.text, f"status={unknown.status_code}")
+    """Sign-in is Supabase Auth; a supervisor is refused the inbox; everyone is held to their
+    own lines. Can't replicate the old "expired token" check here: Supabase, not this app,
+    holds the signing key, so there is no way to mint a validly-signed-but-expired token from
+    the outside - that code path is covered by tests/test_auth.py's monkeypatch instead."""
+    wrong = client.post(
+        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+        headers={"apikey": settings.supabase_anon_key},
+        json={"email": DEMO_PEOPLE[2][0], "password": "wrong-password"},
+    )
+    check("phase 7: a wrong password is refused", wrong.status_code == 400, f"status={wrong.status_code}")
+    unknown = client.post(
+        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
+        headers={"apikey": settings.supabase_anon_key},
+        json={"email": "nobody@test.local", "password": "wrong-password"},
+    )
+    check("phase 7: an unknown email is refused the same way", unknown.status_code == 400, f"status={unknown.status_code}")
 
     supervisor = client.get(f"{API}/reports", headers=bearer(1))
     check("phase 7: a supervisor token is refused", supervisor.status_code == 403, f"status={supervisor.status_code}")
@@ -221,13 +325,15 @@ def phase7_access(report_id: int) -> None:
     anon = client.get(f"{API}/lines")
     check("phase 7: authoring without a token is refused", anon.status_code == 401, f"status={anon.status_code}")
     good = token(1)
-    forged = good[:-1] + ("a" if good[-1] != "a" else "b")
+    # Flip a character in the middle of the signature, not the last one: a last-character flip
+    # can land on unused padding bits and decode to the same bytes, making the check flaky by
+    # construction (hit this for real once - see tests/test_auth.py for the full explanation).
+    header, payload, sig = good.split(".")
+    mid = len(sig) // 2
+    forged_sig = sig[:mid] + ("0" if sig[mid] != "0" else "1") + sig[mid + 1:]
+    forged = f"{header}.{payload}.{forged_sig}"
     check("phase 7: a tampered token is refused",
           client.get(f"{API}/lines", headers={"Authorization": f"Bearer {forged}"}).status_code == 401)
-    stale = f"1.{int(time.time()) - 10}"
-    expired = f"{stale}.{auth._sign(stale)}"
-    check("phase 7: a correctly signed but expired token is refused",
-          client.get(f"{API}/lines", headers={"Authorization": f"Bearer {expired}"}).status_code == 401)
 
     off_line = client.post(f"{API}/machines", json={"line_id": 2, "name": "Not yours"}, headers=bearer(1))
     check("phase 7: a supervisor cannot author on another line", off_line.status_code == 403,
@@ -255,6 +361,7 @@ def phase8_correction(sop: dict, headers: dict) -> None:
 
 
 def main() -> None:
+    ensure_demo_org()
     headers = bearer(2)  # Demo Manager, Line A
     author = bearer(1)   # Demo Supervisor, Line A
     phase0_transcribe(author)

@@ -1,42 +1,32 @@
 import { motion } from 'framer-motion'
-import { ArrowRight, KeyRound, Lock, Mic, Sparkles, User } from 'lucide-react'
+import { ArrowRight, KeyRound, Lock, Mail, Mic, Sparkles } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useSession } from '../hooks/useSession'
 import { Button, Field } from '../components/ui'
-import { getSession, homeFor, saveSession } from '../lib/session'
-import type { LoginResponse } from '../lib/types'
+import { homeFor, signIn } from '../lib/session'
 
 export default function Home() {
   const navigate = useNavigate()
-  const [personId, setPersonId] = useState('')
-  const [pin, setPin] = useState('')
+  const session = useSession()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    const who = getSession()
-    if (who) navigate(homeFor(who.role), { replace: true })
-  }, [navigate])
+    if (session) navigate(homeFor(session.role), { replace: true })
+  }, [session, navigate])
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setLoading(true)
     try {
-      const res = await fetch('/api/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ person_id: Number(personId), pin }),
-      })
-      if (!res.ok) {
-        setError(res.status === 401 ? 'Wrong id or PIN.' : `Sign-in failed: ${await res.text()}`)
-        return
-      }
-      const staff = (await res.json()) as LoginResponse
-      saveSession(staff)
+      const staff = await signIn(email, password)
       navigate(homeFor(staff.role))
-    } catch {
-      setError('Could not reach the server. Check your connection and try again.')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not reach the server. Check your connection and try again.')
     } finally {
       setLoading(false)
     }
@@ -122,14 +112,13 @@ export default function Home() {
 
               <div className="mt-5 flex flex-col gap-3">
                 <div className="relative">
-                  <User size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
+                  <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
                   <Field
-                    type="number"
-                    min={1}
+                    type="email"
                     required
-                    placeholder="Your id"
-                    value={personId}
-                    onChange={(e) => setPersonId(e.target.value)}
+                    placeholder="Email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="pl-10"
                   />
                 </div>
@@ -137,11 +126,10 @@ export default function Home() {
                   <Lock size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-faint" />
                   <Field
                     type="password"
-                    inputMode="numeric"
                     required
-                    placeholder="PIN"
-                    value={pin}
-                    onChange={(e) => setPin(e.target.value)}
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
                     className="pl-10"
                   />
                 </div>

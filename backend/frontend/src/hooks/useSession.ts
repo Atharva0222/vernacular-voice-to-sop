@@ -1,19 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getSession, type Session } from '../lib/session'
+import { getSession, subscribeSession, type Session } from '../lib/session'
 import type { Role } from '../lib/types'
 
-export function useSession(): Session | null {
-  const [session] = useState(() => getSession())
-  return session
+/** `undefined` while Supabase's own (async) session hydration is still in flight, `null` once
+ * resolved to "signed out". Pages that only need a truthy check treat both the same. */
+export function useSession(): Session | null | undefined {
+  return useSyncExternalStore(subscribeSession, getSession)
 }
 
-/** Redirects to sign-in when there is no session or the role does not match. */
+/** Redirects to sign-in once resolved to no session (or the wrong role) - never during the
+ * brief `undefined` window, so refreshing a page never bounces an already-signed-in user. */
 export function useRequireRole(...roles: Role[]): Session | null {
   const navigate = useNavigate()
   const session = useSession()
 
   useEffect(() => {
+    if (session === undefined) return
     if (!session || !roles.includes(session.role)) {
       navigate('/', { replace: true })
     }

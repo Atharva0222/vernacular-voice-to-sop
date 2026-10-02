@@ -1,8 +1,9 @@
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import make_asgi_app
@@ -10,19 +11,20 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from app import db
+from app import auth
 from app.config import settings
 from app.limiter import limiter
 from app.logging_config import configure_logging
 from app.observability import observability_middleware
-from app.routes import login, machine, report, sop, structure, transcribe, tts
+from app.routes import employees, leave, machine, recruitment, report, sop, structure, transcribe, tts, workforce
 
 configure_logging()
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
-    db.init()
+    # Schema is Alembic-managed now (`alembic upgrade head`), not created on boot - a shared
+    # hosted Postgres instance isn't a per-dev SQLite file, so DDL only happens explicitly.
     yield
 
 
@@ -50,12 +52,22 @@ app.include_router(structure.router, prefix="/api")
 app.include_router(sop.router, prefix="/api")
 app.include_router(machine.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
-app.include_router(login.router, prefix="/api")
+app.include_router(employees.router, prefix="/api")
+app.include_router(workforce.router, prefix="/api")
+app.include_router(leave.router, prefix="/api")
+app.include_router(recruitment.router, prefix="/api")
 
 
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/me")
+def me(person: Annotated[dict, Depends(auth.current_person)]) -> dict:
+    """Role/name for the signed-in staff member, read live from `employees` on every call -
+    the frontend session wrapper calls this instead of trusting anything cached client-side."""
+    return {"name": person["name"], "role": person["role"]}
 
 
 class _RevalidatingStatic(StaticFiles):

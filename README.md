@@ -2,14 +2,22 @@
 
 ![CI](https://github.com/Atharva0222/vernacular-voice-to-sop/actions/workflows/ci.yml/badge.svg)
 
-A supervisor narrates a procedure in Hindi or Marathi; the system turns it into simple
-picture-and-voice SOP cards for the workers on that machine. Workers can hold a mic button
-on any card to report a problem in their own language. The report is triaged against the SOP
-into **machine**, **sop** or **understanding**, routed to the line's manager (never the
-supervisor), and answered back as voice on the card.
+A plant-floor CRM built on Supabase. Voice-to-SOP is its original feature: a supervisor
+narrates a procedure in Hindi or Marathi, the system turns it into simple picture-and-voice SOP
+cards for the workers on that machine, and workers can hold a mic button on any card to report
+a problem in their own language — triaged into **machine**, **sop** or **understanding**,
+routed to the line's manager (never the supervisor), and answered back as voice on the card.
+Alongside it: **Employee management** (a plant-wide directory, including line workers tracked
+by name for scheduling purposes), **Workforce management** (shift definitions, assignments, and
+supervisor-operated clock-in/out), and **HR management** (self-service leave with approval, and
+a minimal recruitment pipeline with resume storage).
 
-`TESTING.md` walks through the whole loop by hand. `docs/` holds the worker feedback
-specification and the plan it was built from.
+Workers never have an account, in any module — that's structural, not a gap (see `CLAUDE.md`'s
+Auth section). Staff sign in with Supabase Auth and everything is scoped by role and by which
+plant/line they run, enforced both in the API and via Postgres Row Level Security.
+
+`TESTING.md` walks through the voice-to-SOP loop by hand. `docs/` holds historical planning
+docs from before the CRM expansion - not kept in sync, see `CLAUDE.md`.
 
 ## Pipeline
 
@@ -21,20 +29,33 @@ specification and the plan it was built from.
 
 ## Run locally
 
+Needs a Supabase project - for local dev, the Supabase CLI's own stack (`supabase start`,
+requires Docker) gives you real Postgres + Auth + Storage with no cloud account:
+
 ```bash
 cd backend
-python -m venv .venv && .venv/Scripts/pip install -r requirements.txt
-cp .env.example .env        # then set V2S_AUTH_SECRET and your LLM key
-cd frontend && npm install && npm run build && cd ..   # one-time, rebuild after editing frontend/
-.venv/Scripts/uvicorn app.main:app --reload --port 8001
+supabase init && supabase start   # prints local URLs/keys; `supabase status` reprints them later
 ```
 
-Open `http://localhost:8001/preview/`. **Workers do not sign in**: the worker door leads
-straight to the machine list, that machine's cards, and one speak button that the SOP answers
-when it can. **Supervisors and managers sign in with a person id and PIN**, and the role in the
-token decides the screen: supervisors add machines and record procedures for their own lines,
-managers get the report inbox. A fresh database seeds demo staff with the PINs in `TESTING.md`.
-Models download on first transcription.
+```bash
+cd backend
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+cp .env.example .env        # then set the Supabase values (supabase status) and your LLM key
+alembic upgrade head        # schema is Alembic-managed - nothing seeds it on boot, see below
+cd frontend && cp .env.example .env   # set VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY
+npm install && npm run build && cd ..   # one-time, rebuild after editing frontend/
+.venv/bin/uvicorn app.main:app --reload --port 8001
+```
+
+Open `http://localhost:8001/preview/`. **Workers do not sign in, in any module**: the worker
+door leads straight to the machine list, that machine's cards, and one speak button that the
+SOP answers when it can. **Staff sign in with Supabase Auth** (email + password), and their role
+in `employees` decides the screen and what they can reach: supervisors add machines and record
+procedures for their own lines, managers get the report inbox, HR/recruiting roles get the HR
+tab, and the Employees/Workforce tabs are scoped to the lines or plant each role actually runs.
+There's no seeded demo org out of the box; `scripts/e2e.py` creates one (and the matching
+Supabase Auth users) the first time it runs against an empty project. Models download on first
+transcription.
 
 The UI (`backend/frontend/`) is a Vite + React + TypeScript + Tailwind app; FastAPI serves its
 built output as static files at `/preview`, so it needs a `npm run build` after any frontend
@@ -42,7 +63,10 @@ change (`uvicorn --reload` only watches `app/`, not `frontend/`). For active fro
 development with hot reload, run `cd backend/frontend && npm run dev` instead — its dev server
 proxies `/api` to the backend on port 8001, so both can run side by side.
 
-Docker: `docker build -t voice-to-sop backend && docker run --env-file backend/.env -p 8000:8000 voice-to-sop`.
+Docker: `docker build -t voice-to-sop backend --build-arg VITE_SUPABASE_URL=... --build-arg
+VITE_SUPABASE_ANON_KEY=... && docker run --env-file backend/.env -p 8000:8000 voice-to-sop`
+(the build args are needed because Vite inlines them into the bundle at build time, not
+runtime - see `backend/Dockerfile`).
 
 ## Development
 
@@ -50,7 +74,7 @@ Docker: `docker build -t voice-to-sop backend && docker run --env-file backend/.
 cd backend
 pip install -r requirements-dev.txt   # adds pytest, ruff on top of requirements.txt
 ruff check app tests                  # lint
-pytest                                # unit + route tests, isolated temp SQLite per test, no network/model calls
+pytest                                # needs `supabase start` running; truncates+reseeds a fixed demo org per test
 ```
 
 CI (`.github/workflows/ci.yml`) runs both on every push/PR. The `docker-build` job is manual
@@ -58,22 +82,17 @@ CI (`.github/workflows/ci.yml`) runs both on every push/PR. The `docker-build` j
 checkpoints in from Hugging Face (see `backend/Dockerfile`), and any `app/` change busts that
 layer's cache, so running it on every push would re-pull several GB each time.
 
-**Migrations.** `backend/migrations/` is Alembic-managed, starting from a single initial
-revision that mirrors `app/db.py`'s `SCHEMA` exactly (imported, not copied). Local dev/demo is
-unaffected: `db.init()` still auto-creates and seeds that same schema on an empty database via
-`CREATE TABLE/VIEW IF NOT EXISTS`, so running the app without ever touching alembic keeps
-working. Alembic is the versioned path for applying schema changes going forward:
+**Migrations.** `backend/migrations/` is Alembic-managed; every revision is hand-written Postgres
+DDL (including RLS policies - autogenerate never produces those). Schema is **not** auto-created
+on boot: a hosted Supabase project is shared, not a per-dev scratch file, so `alembic upgrade
+head` is a required, explicit step, both locally and as the first thing the Docker image's `CMD`
+does on every deploy.
 
 ```bash
 cd backend
-alembic upgrade head      # apply pending migrations, targets V2S_DB_PATH
+alembic upgrade head      # apply pending migrations, targets V2S_DATABASE_MIGRATE_URL
 alembic revision -m "..." # scaffold a new migration for a future schema change
 ```
-
-Note for anyone extending this: the current schema is SQLite-specific (the `report_view` /
-`step_edit_view` escalation and clustering logic uses `strftime()` and boolean-valued columns),
-so a Postgres target would need those views rewritten for its dialect, not just a connection
-string change.
 
 ## Settings
 
@@ -81,8 +100,10 @@ All read from the environment or `backend/.env`, prefix `V2S_`.
 
 | Variable | Default | What it does |
 |---|---|---|
-| `V2S_AUTH_SECRET` | *required* | Signs session tokens. Not a login credential: staff sign in with their own PIN. The app will not start without it. |
-| `V2S_DB_PATH` | `<tmp_dir>/voice-to-sop.db` | SQLite file. An empty file is seeded with a demo plant, two lines and two machines. |
+| `V2S_DATABASE_URL` | *required* | Supabase Postgres connection - the Supavisor **session-mode** pooler for a deployed project (transaction-mode pooling breaks psycopg3's prepared-statement cache), or the direct `postgresql://postgres:postgres@127.0.0.1:54322/postgres` for local `supabase start`. |
+| `V2S_DATABASE_MIGRATE_URL` | = `V2S_DATABASE_URL` | Direct (unpooled) connection Alembic uses for DDL. Only needs to differ from the above against a deployed project with a pooler in front. |
+| `V2S_SUPABASE_URL` / `V2S_SUPABASE_ANON_KEY` | *required* | Supabase project URL and publishable/anon key. No JWT secret setting exists: `current_person()` verifies staff tokens against Supabase's public JWKS instead (current Supabase projects sign with a per-project key, not a shared secret). |
+| `V2S_SUPABASE_SERVICE_ROLE_KEY` | *required* | RLS-bypassing - server-only, never sent to the frontend. Used by the worker-facing routes and the recruitment module's resume-upload signing. |
 | `V2S_CORS_ORIGINS` | *empty* | Allowed browser origins. The bundled preview is same-origin and needs none. |
 | `V2S_LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (Ollama locally, Groq in deployment). |
 | `V2S_LLM_MODEL` / `V2S_LLM_API_KEY` | `llama3.2:3b` / `ollama` | Model and key for that endpoint. |
@@ -101,11 +122,14 @@ All read from the environment or `backend/.env`, prefix `V2S_`.
 | `POST /api/tts`, `GET /api/audio/{key}` | synthesize and play audio |
 | `POST /api/report`, `POST /api/ask` | a worker's voice report; returns `202` at once with a receipt |
 | `GET /api/receipt/{receipt}` | the worker's own view: status and reply audio only |
-| `POST /api/login`, `GET /api/health` | sign in; health check |
+| `GET /api/health` | health check |
 
-**Sign in** with `POST /api/login {person_id, pin}` -> `Authorization: Bearer <token>`. PINs are
-per person, hashed with scrypt; a person with no PIN cannot sign in. Tokens expire after 12
-hours. A wrong PIN and an unknown id return the same `401`.
+**Sign in** via Supabase Auth directly from the frontend (`supabase.auth.signInWithPassword`),
+not through this API - there is no `POST /api/login`. Every other route below expects
+`Authorization: Bearer <supabase access token>`; `current_person()` re-verifies it (signature +
+expiry, against Supabase's public JWKS) on every request and reads role/plant/line live from
+`employees`, so a role change applies immediately with no re-login needed. `GET /api/me` returns
+the caller's own `{name, role}` once signed in.
 
 **Authoring token** (any signed-in staff member, held to the lines they run: a supervisor or
 manager to their own, a plant head to their whole plant). Off-line writes get `403`.
@@ -117,9 +141,11 @@ manager to their own, a plant head to their whole plant). Off-line writes get `4
 | `POST /api/sop` | persist an SOP as the next version for its machine |
 | `GET /api/sops` | every SOP on the caller's own lines |
 | `POST /api/machines`, `GET /api/lines` | add a machine; the lines the caller may use |
+| `GET /api/shift-assignments`, `POST /api/shift-assignments` | the roster for the caller's own lines (or whole plant for a plant head); assign a shift |
+| `POST /api/attendance/clock-in`, `.../{id}/clock-out` | kiosk-style: a supervisor clocks a named worker in/out on a shared device |
 
-**Manager token.** Supervisors get `403`; a manager sees only their own lines, a plant head
-their whole plant.
+**Manager token.** Supervisors (and HR/recruiting roles) get `403`; a manager sees only their
+own lines, a plant head their whole plant.
 
 | Route | Purpose |
 |---|---|
@@ -128,15 +154,35 @@ their whole plant.
 | `GET /api/step-edits?status=` | card changes drafted from confirmed reports |
 | `POST /api/step-edit/{id}/approve`, `.../reject` | approve writes the next SOP version |
 
+**Any staff token.** Plant-wide, read-only unless noted.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/employees?department_id=&employment_status=` | the plant's directory, including `role='worker'` rows tracked for scheduling only (no account, ever) |
+| `GET /api/departments`, `GET /api/shifts` | department and shift-definition lists |
+| `GET /api/leave-types`, `GET /api/leave-balances`, `GET /api/leave-requests` | leave reference data and the caller's own balance/requests (hr_admin/plant_head see everyone's in their plant) |
+| `POST /api/leave-requests` | self-service leave request (always for the caller themselves) |
+
+**hr_admin / plant_head token** (`org_admin`): `POST`/`PATCH /api/employees`, `POST
+/api/departments`, `POST /api/shifts`, `POST /api/leave-balances` (upsert), `POST
+/api/leave-requests/{id}/approve`/`.../reject` (deducts the balance on approve). `leave-types`
+creation is hr_admin only, not plant_head.
+
+**hr_admin / recruiter / plant_head token** (`recruiter_access`), scoped org-wide rather than
+per-plant: `GET`/`POST /api/job-postings`, `GET`/`POST /api/candidates`, `POST
+/api/candidates/{id}/resume-upload-url` (a short-lived Supabase Storage signed URL the browser
+uploads directly to) + `PATCH /api/candidates/{id}` (records the resulting path), `GET`/`POST
+/api/applications`, `PATCH /api/applications/{id}` (stage transitions).
+
 ## Observability
 
 Every request gets a `X-Request-ID` response header and one structured (JSON) log line with
 method, path, status and duration. `GET /metrics` exposes Prometheus-format counters and a
 latency histogram, labeled by route template (not raw path, so `/api/sop/{id}` stays one series
-regardless of id). `POST /api/login` is capped at 10/minute per client against brute-forcing
-PINs; `POST /api/report`, `POST /api/ask` at 20/minute; `POST /api/transcribe`, `POST /api/tts`
-at 30/minute — all in-memory and per-process, so a multi-worker deployment would need a shared
-backend (e.g. Redis) for the limit to hold across processes.
+regardless of id). `POST /api/report`, `POST /api/ask` are capped at 20/minute per client; `POST
+/api/transcribe`, `POST /api/tts` at 30/minute — all in-memory and per-process, so a
+multi-worker deployment would need a shared backend (e.g. Redis) for the limit to hold across
+processes. Staff sign-in is rate-limited by Supabase itself, not this app.
 
 ## Privacy
 
@@ -150,15 +196,21 @@ does not remove it.
 
 `python scripts/e2e.py` runs the plan's checklist against a running server: transcription
 completeness, persistence, the three-way triage, the voiced reply, escalation, clustering,
-access control and SOP self-correction.
+access control and SOP self-correction. Seeds its own demo org (and matching Supabase Auth
+users) on first run against an empty project - safe to rerun, but only seeds against a
+genuinely empty `plants` table, matching its "scratch DB" assumption.
 
 ## Known limits
 
-- SQLite on an ephemeral disk: data is lost on redeploy. A volume or Postgres is needed
-  before any pilot.
 - Escalation is computed on read, so nothing escalates until a manager opens the inbox.
 - Triage accuracy is unmeasured, and Marathi ASR is weaker than Hindi.
-- Staff sign-in is deliberately minimal: there is no way to change or reset a PIN, no account
-  creation screen, and no refresh tokens. PINs are set in the database. Rotating
-  `V2S_AUTH_SECRET` signs everyone out at once. Login is rate-limited (10/minute/client) against
-  brute-forcing a PIN, but that is a per-process throttle, not a per-account lockout.
+- Payroll is explicitly out of scope for the HR module - leave and a minimal recruitment
+  pipeline only. The schema leaves room (`employees`, `attendance`, `leave_balances`) for it
+  to be added later without rework.
+- Recruitment (`job_postings`/`candidates`/`applications`) is scoped org-wide to
+  hr_admin/recruiter/plant_head, not filtered per plant - fine for a single-plant deployment,
+  a real gap for a genuinely multi-plant org with separate recruiting teams.
+- Leave is self-service for staff with an account (supervisor and up); `role='worker'` rows
+  have no account, so workforce-tracked line workers can't request leave through this yet.
+- Leave balances don't auto-accrue; hr_admin sets them directly. No payroll-grade accrual
+  engine exists.

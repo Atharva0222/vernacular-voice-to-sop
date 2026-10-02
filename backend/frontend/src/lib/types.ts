@@ -1,5 +1,5 @@
 export type Language = 'hi' | 'mr'
-export type Role = 'supervisor' | 'manager' | 'plant_head'
+export type Role = 'supervisor' | 'manager' | 'plant_head' | 'hr_admin' | 'recruiter'
 
 export interface Step {
   step_number: number
@@ -98,8 +98,112 @@ export interface StepEdit {
   created_at: string
 }
 
-export interface LoginResponse {
-  token: string
+export type EmployeeRole = 'worker' | 'supervisor' | 'manager' | 'plant_head' | 'hr_admin' | 'recruiter'
+export type EmploymentStatus = 'active' | 'on_leave' | 'terminated'
+
+export interface Department {
+  id: number
+  plant_id: number
   name: string
-  role: Role
+  head_employee_id: number | null
+}
+
+export interface Shift {
+  id: number
+  plant_id: number
+  name: string
+  starts_at: string
+  ends_at: string
+}
+
+export interface ShiftAssignment {
+  id: number
+  employee_id: number
+  employee_name: string
+  shift_id: number
+  shift_name: string
+  line_id: number
+  work_date: string
+}
+
+export interface Attendance {
+  id: number
+  shift_assignment_id: number
+  clock_in: string | null
+  clock_out: string | null
+  machine_id: number | null
+}
+
+export interface LeaveType {
+  id: number
+  name: string
+  annual_quota_days: number
+}
+
+export interface LeaveBalance {
+  employee_id: number
+  leave_type_id: number
+  year: number
+  remaining_days: number
+}
+
+export type LeaveRequestStatus = 'pending' | 'approved' | 'rejected'
+
+export interface LeaveRequest {
+  id: number
+  employee_id: number
+  employee_name: string
+  leave_type_id: number
+  leave_type_name: string
+  starts_on: string
+  ends_on: string
+  status: LeaveRequestStatus
+  approved_by: number | null
+  created_at: string
+}
+
+export type JobPostingStatus = 'open' | 'closed'
+export type ApplicationStage = 'applied' | 'screening' | 'interview' | 'offer' | 'rejected' | 'hired'
+
+export interface JobPosting {
+  id: number
+  plant_id: number
+  title: string
+  department_id: number | null
+  status: JobPostingStatus
+  created_by: number
+  created_at: string
+}
+
+export interface Candidate {
+  id: number
+  name: string
+  phone: string | null
+  email: string | null
+  resume_storage_path: string | null
+}
+
+export interface Application {
+  id: number
+  job_posting_id: number
+  candidate_id: number
+  candidate_name: string
+  stage: ApplicationStage
+  created_at: string
+}
+
+export interface EmployeeSummary {
+  id: number
+  name: string
+  role: EmployeeRole
+  phone: string | null
+  language: string
+  plant_id: number
+  employee_code: string | null
+  department_id: number | null
+  job_title: string | null
+  direct_manager_id: number | null
+  employment_status: EmploymentStatus
+  hire_date: string | null
+  created_at: string
 }
