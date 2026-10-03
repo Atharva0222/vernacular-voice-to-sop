@@ -16,8 +16,8 @@ Open PowerShell in `backend/` and pick one:
 .\scripts\run_test.ps1             # no browser: runs every check for you, ~10 min
 ```
 
-Then open <http://localhost:8001/preview/>. The worker walks straight in; staff sign
-in with an id and PIN, and the role decides the screen. The pages are:
+Then open <http://localhost:8001/preview/>. The worker walks straight in; staff sign in with
+email and password (Supabase Auth), and their role decides the screen. The pages are:
 
 | Page | Who it is for | What it does |
 |---|---|---|
@@ -40,15 +40,19 @@ are entirely in Hindi; the supervisor's and manager's pages are in English.
 You need:
 
 - The Python environment in `backend/.venv` (already set up on this machine).
-- An LLM endpoint in `backend/.env` (`V2S_LLM_BASE_URL`, `V2S_LLM_MODEL`, `V2S_LLM_API_KEY`)
-  and a `V2S_AUTH_SECRET`. The app refuses to start without the secret.
+- An LLM endpoint in `backend/.env` (`V2S_LLM_BASE_URL`, `V2S_LLM_MODEL`, `V2S_LLM_API_KEY`) and
+  a Supabase project (`V2S_DATABASE_URL`, `V2S_SUPABASE_URL`, `V2S_SUPABASE_ANON_KEY`,
+  `V2S_SUPABASE_SERVICE_ROLE_KEY`) - a local `supabase start` stack works fine and needs no
+  cloud account; see `README.md`. The app refuses to start without these.
 - A microphone, for the part where you actually speak into a card.
 - Patience: transcription runs on the CPU. A 10 second complaint takes a minute or two to
   come back. That is normal and the worker never waits for it.
 
-The script handles the two fiddly things about this machine itself: the certificate file
-Hugging Face downloads need, and a scratch database in `%TEMP%\v2s-test` so test data never
-mixes into anything real.
+The script handles the fiddly things about this machine itself: the certificate file Hugging
+Face downloads need, applying pending migrations, seeding the demo factory, and a scratch
+folder in `%TEMP%\v2s-test` for audio uploads/cache so test files never mix into anything real
+(the database itself lives in Supabase, not a local scratch file, so there is nothing to reset
+there between runs unless you want to).
 
 ## 1. Start the server
 
@@ -85,8 +89,8 @@ Everything else happens in the browser.
 ## 2. Make the SOP cards (the supervisor's part)
 
 Open <http://localhost:8001/preview/> — the home page. Sign in under
-**Supervisor or manager** as **id `1`, PIN `1111`** (Demo Supervisor, Line A). You land on the
-machine list, which shows only Line A: signing in as someone else would show a different list.
+**Supervisor or manager** as **`e2e-person1@test.local`** (Demo Supervisor, Line A). You land on
+the machine list, which shows only Line A: signing in as someone else would show a different list.
 
 Pick **Press 1** from the machine list. Each machine has its own
 SOP, so the procedure you record belongs to the machine you picked. A machine that is not on
@@ -163,8 +167,8 @@ voice and recognise who it was. Only the cleaned text survives.
 
 Open <http://localhost:8001/preview/#/inbox> in a new tab.
 
-It sends you to the sign-in if you are not already a manager there. Sign in as **id `2`,
-PIN `2222`** (Demo Manager, Line A).
+It sends you to the sign-in if you are not already a manager there. Sign in as
+**`e2e-person2@test.local`** (Demo Manager, Line A).
 
 **What should happen:** only what the SOP could not answer is here, each already sorted by
 kind. This is the part a generic voice app cannot do, because it needs the SOP as context:
@@ -200,19 +204,21 @@ had to read anything, and the loop is closed.
 
 This is the promise the whole feature rests on, so test it directly.
 
-Close the inbox tab and open <http://localhost:8001/preview/> in a fresh one — a
-sign-in only lasts as long as the tab. Sign in as **id `1`, PIN `1111`**, Demo Supervisor.
+Supabase sessions persist in the browser's local storage, not per-tab, so **sign out first**
+(the icon next to your name, top right) before switching accounts - just closing the tab or
+opening a fresh one will not sign you out. Sign out, then sign in as
+**`e2e-person1@test.local`**, Demo Supervisor.
 
 **What should happen:** you land on the machine list, not the inbox, and going to
 `/preview/#/inbox` by hand bounces you straight back out. The supervisor cannot see a single
 report, not even their own line's.
 
-Then sign in as **id `5`, PIN `5555`** (Demo Manager B, the other line): they reach the inbox
-fine but see none of your Line A reports. While signed in as them, the machine list offers only
-Line B, and trying to save a card for Press 1 is refused.
+Sign out and sign in as **`e2e-person5@test.local`** (Demo Manager B, the other line): they
+reach the inbox fine but see none of your Line A reports. While signed in as them, the machine
+list offers only Line B, and trying to save a card for Press 1 is refused.
 
-Two more worth a try: the wrong PIN for a real id, and a PIN for an id that does not exist.
-Both say exactly **"Wrong id or PIN"**, so nobody can discover which ids are real.
+One more worth a try: a wrong password for a real email. Supabase returns the same generic
+error either way, so nobody can discover which emails are real accounts from the error alone.
 
 ## 7. The card fixes itself
 
@@ -274,21 +280,25 @@ The server's own output goes to `%TEMP%\v2s-test\server.log` and `server.log.err
 
 | What you see | What it usually is |
 |---|---|
-| Server won't start, complains about `auth_secret` | `V2S_AUTH_SECRET` missing from `backend/.env` |
+| Server won't start, complains about missing Supabase settings | `V2S_DATABASE_URL`/`V2S_SUPABASE_*` missing from `backend/.env` - see `README.md`'s Settings table |
+| `alembic upgrade head` fails before the server even starts | Check `V2S_DATABASE_MIGRATE_URL`/`V2S_DATABASE_URL` point at a reachable Supabase project; if using `supabase start`, confirm Docker is running and `supabase status` shows it up |
 | Only the first sentence became a card | The transcription window is wrong — it should be 4 s in `app/asr.py` |
 | A report is stuck on *Processing* | Still transcribing. A minute or two per report on CPU |
 | A report says *failed* | Look at the server terminal. Usually the LLM endpoint or an empty recording |
 | Mic button does nothing | The browser blocked the microphone. Allow it for `localhost` |
 | An old page shows, with no role options | A browser cache from before the pages split. Restart the server, then reload with Ctrl+F5 |
-| Inbox is empty after signing in | You signed in as the wrong person. Line A reports need person id 2 |
-| Sign-in says "Wrong id or PIN" | Check the id and PIN against the demo table above. An old database has no PINs at all - delete it and restart |
-| A staff page bounces to the home page | The session ended, or that role does not belong on that page. Sign in again |
+| Inbox is empty after signing in | You signed in as the wrong person. Line A reports need `e2e-person2@test.local` |
+| Sign-in fails for an email in the demo table | Confirm `ensure_demo_org()` actually seeded this project - it bails out (no-op) if `plants` already has unrelated rows; see `scripts/e2e.py` |
+| A staff page bounces to the home page even though you just signed in | Supabase sessions persist in local storage, not per-tab (see step 6) - if you're bounced right after signing in, that role just doesn't belong on that page |
 | Saving a card is refused with 403 | That machine is not on one of your lines. Sign in as its line's supervisor |
 | Errors about certificates | Start through `run_test.ps1`; it sets the certificate file for you |
 
 ## Start over
 
-The database gained a column with the speak feature, so the first run after it needs a fresh
-one. Stop the server and run `run_test.ps1 -Fresh`, or delete `%TEMP%\v2s-test`. The next start builds a fresh database with the
-demo factory in it. Do this after any change to the database structure, because existing
-tables are never altered in place.
+The database lives in your Supabase project now, not a local scratch file, so `-Fresh` only
+wipes local audio scratch files (`%TEMP%\v2s-test`) - it does not touch Supabase. To reset the
+demo org itself, truncate the tables in your Supabase project directly (for a local
+`supabase start` stack, `supabase db reset` rebuilds it from the migrations) and rerun
+`run_test.ps1`, which reapplies migrations and reseeds the demo factory. Do this after any
+change to the database structure that isn't expressed as a migration, since `alembic upgrade
+head` only ever applies forward, never alters existing tables outside what a revision says.
