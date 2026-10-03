@@ -2,6 +2,7 @@ import { HashRouter, Route, Routes } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
 import Cards from './pages/Cards'
 import Create from './pages/Create'
+import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import Inbox from './pages/Inbox'
 import Machines from './pages/Machines'
@@ -15,6 +16,7 @@ export default function App() {
       <HashRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/machines" element={<Machines />} />
           <Route path="/cards" element={<Cards />} />
           <Route path="/create" element={<Create />} />

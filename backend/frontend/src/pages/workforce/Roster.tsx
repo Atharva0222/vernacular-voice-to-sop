@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Clock, LogIn, LogOut, Plus, X } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { BackLink, PageHeader, Shell, WhoAmI } from '../../components/layout'
-import { StaffNav } from '../../components/StaffNav'
+import { AppShell } from '../../components/AppShell'
+import { PageHeader } from '../../components/layout'
 import { Badge, Button, EmptyState, Field, Select, Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { apiAuth } from '../../lib/api'
@@ -129,18 +129,10 @@ export default function Roster() {
   if (!staff) return null
 
   return (
-    <Shell wide>
-      <BackLink to="/">Home</BackLink>
-
+    <AppShell role={staff.role} name={staff.name}>
       <PageHeader
         title="Workforce"
         subtitle="Shift assignments and clock-in/out for your lines. A supervisor runs the clock on behalf of the worker at a shared device - workers never sign in."
-        right={
-          <div className="flex items-center gap-3">
-            <StaffNav role={staff.role} />
-            <WhoAmI name={staff.name} role={staff.role} />
-          </div>
-        }
       />
 
       {canManageShifts && (
@@ -307,6 +299,6 @@ export default function Roster() {
           )}
         </div>
       )}
-    </Shell>
+    </AppShell>
   )
 }

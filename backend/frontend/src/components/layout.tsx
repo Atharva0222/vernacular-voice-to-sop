@@ -1,8 +1,7 @@
 import clsx from 'clsx'
-import { ArrowLeft, LogOut } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { signOut } from '../lib/session'
 
 export function BackLink({ to, children }: { to: string; children: ReactNode }) {
   return (
@@ -39,26 +38,6 @@ export function PageHeader({
       </div>
       {right}
     </header>
-  )
-}
-
-export function WhoAmI({ name, role }: { name: string; role: string }) {
-  return (
-    <div className="flex items-center gap-2.5 rounded-full border border-border bg-white py-1.5 pl-1.5 pr-3 shadow-xs">
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-to text-xs font-bold text-white">
-        {name.charAt(0).toUpperCase()}
-      </div>
-      <span className="text-sm font-semibold text-ink">{name}</span>
-      <span className="hidden text-xs text-ink-faint sm:inline">· {role.replace('_', ' ')}</span>
-      <button
-        onClick={signOut}
-        className="ml-1 rounded-full p-1 text-ink-faint transition-colors hover:bg-stop-bg hover:text-stop"
-        title="Sign out"
-        aria-label="Sign out"
-      >
-        <LogOut size={14} />
-      </button>
-    </div>
   )
 }
 

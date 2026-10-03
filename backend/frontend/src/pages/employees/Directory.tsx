@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Plus, Users, X } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { BackLink, PageHeader, Shell, WhoAmI } from '../../components/layout'
-import { StaffNav } from '../../components/StaffNav'
+import { AppShell } from '../../components/AppShell'
+import { PageHeader } from '../../components/layout'
 import { Badge, Button, EmptyState, Field, Select, Spinner } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { apiAuth } from '../../lib/api'
@@ -71,18 +71,10 @@ export default function Directory() {
   if (!staff) return null
 
   return (
-    <Shell wide>
-      <BackLink to="/">Home</BackLink>
-
+    <AppShell role={staff.role} name={staff.name}>
       <PageHeader
         title="Employees"
         subtitle="Everyone on the books at this plant, from line workers tracked for scheduling to the staff who run it."
-        right={
-          <div className="flex items-center gap-3">
-            <StaffNav role={staff.role} />
-            <WhoAmI name={staff.name} role={staff.role} />
-          </div>
-        }
       />
 
       <div className="mb-6 flex flex-wrap gap-3">
@@ -196,6 +188,6 @@ export default function Directory() {
           </AnimatePresence>
         </div>
       )}
-    </Shell>
+    </AppShell>
   )
 }

@@ -80,10 +80,7 @@ export async function signOut(): Promise<void> {
   window.location.hash = '#/'
 }
 
-/** The page a role belongs on after signing in. */
-export function homeFor(role: Role): string {
-  if (role === 'supervisor') return '/machines'
-  if (role === 'manager' || role === 'plant_head') return '/inbox'
-  if (role === 'recruiter') return '/hr'
-  return '/employees'
+/** The page a role belongs on after signing in - the dashboard, for everyone. */
+export function homeFor(_role: Role): string {
+  return '/dashboard'
 }

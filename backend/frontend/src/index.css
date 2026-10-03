@@ -66,6 +66,10 @@
 
 html {
   -webkit-text-size-adjust: 100%;
+  /* Tailwind's whole type scale is rem-relative, so this one line raises every
+     text-xs..text-3xl size in the app proportionally - the highest-leverage fix
+     for a dashboard that reads too small on a large display. */
+  font-size: 118.75%; /* 19px effective base, up from the 16px default */
 }
 
 body {

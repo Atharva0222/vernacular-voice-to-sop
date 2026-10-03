@@ -1,10 +1,10 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Cog, Factory, Plus, X } from 'lucide-react'
-import { type FormEvent, useMemo, useState } from 'react'
+import { type FormEvent, type ReactNode, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { BackLink, PageHeader, Shell, WhoAmI } from '../components/layout'
-import { StaffNav } from '../components/StaffNav'
+import { AppShell } from '../components/AppShell'
+import { BackLink, PageHeader, Shell } from '../components/layout'
 import { Button, EmptyState, Field, Select, Spinner } from '../components/ui'
 import { useToast } from '../components/Toast'
 import { apiAuth } from '../lib/api'
@@ -22,6 +22,7 @@ export default function Machines() {
   const toast = useToast()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isStaff = !!session
   const isSupervisor = session?.role === 'supervisor'
   const target = isSupervisor ? 'create' : 'cards'
   const [adding, setAdding] = useState(false)
@@ -43,7 +44,9 @@ export default function Machines() {
     return isSupervisor && ownLineIds ? all.filter((m) => ownLineIds.includes(m.line_id)) : all
   }, [machinesQuery.data, isSupervisor, ownLineIds])
 
-  const WORDS = isSupervisor
+  // Keyed on isStaff, not isSupervisor: any signed-in staff member (manager, plant_head, HR...)
+  // gets the English staff copy. Only a worker with no session at all sees the Hindi one.
+  const WORDS = isStaff
     ? {
         title: 'Pick a machine',
         subtitle: 'Choose the machine you are recording a procedure for.',
@@ -81,148 +84,155 @@ export default function Machines() {
     }
   }
 
-  return (
-    <div className={isSupervisor ? '' : 'lang-dev'}>
-      <Shell wide>
-        <BackLink to="/">{WORDS.back}</BackLink>
+  const content = (
+    <>
+      <PageHeader title={WORDS.title} subtitle={WORDS.subtitle} devanagari={!isStaff} />
 
-        <PageHeader
-          title={WORDS.title}
-          subtitle={WORDS.subtitle}
-          devanagari={!isSupervisor}
-          right={
-            session && (
-              <div className="flex items-center gap-3">
-                <StaffNav role={session.role} />
-                <WhoAmI name={session.name} role={session.role} />
-              </div>
-            )
-          }
+      {machinesQuery.isLoading && (
+        <div className="flex items-center gap-2 py-10 text-ink-soft">
+          <Spinner /> Loading machines...
+        </div>
+      )}
+
+      {machinesQuery.isError && (
+        <p className="rounded-2xl bg-stop-bg px-4 py-3 text-sm font-medium text-stop">
+          {(machinesQuery.error as Error).message}
+        </p>
+      )}
+
+      {machinesQuery.isSuccess && machines.length === 0 && (
+        <EmptyState
+          icon={Factory}
+          title={isStaff ? 'No machines on your lines yet' : 'कोई मशीन उपलब्ध नहीं'}
+          subtitle={isStaff ? 'Add one below to get started.' : undefined}
         />
+      )}
 
-        {machinesQuery.isLoading && (
-          <div className="flex items-center gap-2 py-10 text-ink-soft">
-            <Spinner /> Loading machines...
-          </div>
-        )}
-
-        {machinesQuery.isError && (
-          <p className="rounded-2xl bg-stop-bg px-4 py-3 text-sm font-medium text-stop">
-            {(machinesQuery.error as Error).message}
-          </p>
-        )}
-
-        {machinesQuery.isSuccess && machines.length === 0 && (
-          <EmptyState
-            icon={Factory}
-            title={isSupervisor ? 'No machines on your lines yet' : 'कोई मशीन उपलब्ध नहीं'}
-            subtitle={isSupervisor ? 'Add one below to get started.' : undefined}
-          />
-        )}
-
-        {machinesQuery.isSuccess && machines.length > 0 && (
-          <div className="grid gap-5 sm:grid-cols-2">
-            {machines.map((m, i) => {
-              const hasSop = m.sop_id !== null
-              return (
-                <motion.div
-                  key={m.id}
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
+      {machinesQuery.isSuccess && machines.length > 0 && (
+        <div className="grid gap-5 sm:grid-cols-2">
+          {machines.map((m, i) => {
+            const hasSop = m.sop_id !== null
+            return (
+              <motion.div
+                key={m.id}
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.04 }}
+              >
+                <Link
+                  to={`/${target}?machine=${m.id}`}
+                  className="group relative block overflow-hidden rounded-3xl border border-border bg-white p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
                 >
-                  <Link
-                    to={`/${target}?machine=${m.id}`}
-                    className="group relative block overflow-hidden rounded-3xl border border-border bg-white p-6 shadow-sm transition-all hover:-translate-y-1 hover:shadow-lg"
-                  >
-                    <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br from-primary/8 to-primary-to/8 transition-transform duration-500 group-hover:scale-125" />
-                    <div className="relative flex items-start justify-between gap-3">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-to text-white shadow-sm">
-                        <Cog size={20} />
-                      </div>
-                      <ArrowRight
-                        size={18}
-                        className="mt-2 text-ink-faint opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100"
-                      />
+                  <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-gradient-to-br from-primary/8 to-primary-to/8 transition-transform duration-500 group-hover:scale-125" />
+                  <div className="relative flex items-start justify-between gap-3">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-primary-to text-white shadow-sm">
+                      <Cog size={20} />
                     </div>
-                    <h2 className={clsxTitle(!isSupervisor)}>{m.name}</h2>
-                    <p className="mt-0.5 text-sm text-ink-soft">{m.line_name}</p>
-                    <span
-                      className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
-                        hasSop ? 'bg-safe-bg text-safe' : 'bg-caution-bg text-caution'
-                      }`}
+                    <ArrowRight
+                      size={18}
+                      className="mt-2 text-ink-faint opacity-0 transition-all group-hover:translate-x-1 group-hover:opacity-100"
+                    />
+                  </div>
+                  <h2 className={clsxTitle(!isStaff)}>{m.name}</h2>
+                  <p className="mt-0.5 text-base text-ink-soft">{m.line_name}</p>
+                  <span
+                    className={`mt-4 inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${
+                      hasSop ? 'bg-safe-bg text-safe' : 'bg-caution-bg text-caution'
+                    }`}
+                  >
+                    {hasSop ? WORDS.cards(m) : WORDS.none}
+                  </span>
+                </Link>
+              </motion.div>
+            )
+          })}
+        </div>
+      )}
+
+      {isSupervisor && linesQuery.data && (
+        <div className="mt-8">
+          <AnimatePresence>
+            {!adding ? (
+              <motion.div key="toggle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+                <button
+                  onClick={() => setAdding(true)}
+                  className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border-strong bg-white/60 py-5 text-base font-semibold text-ink-soft transition-colors hover:border-primary hover:text-primary-dark"
+                >
+                  <Plus size={18} /> Add a machine
+                </button>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="form"
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+              >
+                {/* Plain form/button, not motion.*: a motion element with an `exit` prop inside
+                    AnimatePresence swallows the native click->submit default action. */}
+                <form onSubmit={submitNewMachine} className="rounded-3xl border border-border bg-white p-6 shadow-sm">
+                  <div className="mb-4 flex items-center justify-between">
+                    <h2 className="text-lg font-bold text-ink">New machine</h2>
+                    <button
+                      type="button"
+                      onClick={() => setAdding(false)}
+                      className="rounded-full p-1 text-ink-faint hover:bg-black/5 hover:text-ink"
                     >
-                      {hasSop ? WORDS.cards(m) : WORDS.none}
-                    </span>
-                  </Link>
-                </motion.div>
-              )
-            })}
-          </div>
-        )}
-
-        {isSupervisor && linesQuery.data && (
-          <div className="mt-8">
-            <AnimatePresence>
-              {!adding ? (
-                <motion.div key="toggle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-                  <button
-                    onClick={() => setAdding(true)}
-                    className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border-strong bg-white/60 py-5 text-sm font-semibold text-ink-soft transition-colors hover:border-primary hover:text-primary-dark"
-                  >
-                    <Plus size={18} /> Add a machine
-                  </button>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key="form"
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -8 }}
-                >
-                  {/* Plain form/button, not motion.*: a motion element with an `exit` prop inside
-                      AnimatePresence swallows the native click->submit default action. */}
-                  <form onSubmit={submitNewMachine} className="rounded-3xl border border-border bg-white p-6 shadow-sm">
-                    <div className="mb-4 flex items-center justify-between">
-                      <h2 className="text-base font-bold text-ink">New machine</h2>
-                      <button
-                        type="button"
-                        onClick={() => setAdding(false)}
-                        className="rounded-full p-1 text-ink-faint hover:bg-black/5 hover:text-ink"
-                      >
-                        <X size={16} />
-                      </button>
-                    </div>
-                    <div className="flex flex-wrap gap-3">
-                      <Field
-                        required
-                        maxLength={60}
-                        placeholder="Machine name, e.g. Drill 2"
-                        value={newName}
-                        onChange={(e) => setNewName(e.target.value)}
-                        className="min-w-[200px] flex-1"
-                      />
-                      <Select value={newLine} onChange={(e) => setNewLine(e.target.value)} required>
-                        <option value="" disabled>
-                          Choose a line
+                      <X size={16} />
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-3">
+                    <Field
+                      required
+                      maxLength={60}
+                      placeholder="Machine name, e.g. Drill 2"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      className="min-w-[200px] flex-1"
+                    />
+                    <Select value={newLine} onChange={(e) => setNewLine(e.target.value)} required>
+                      <option value="" disabled>
+                        Choose a line
+                      </option>
+                      {linesQuery.data.map((l) => (
+                        <option key={l.id} value={l.id}>
+                          {l.name}
                         </option>
-                        {linesQuery.data.map((l) => (
-                          <option key={l.id} value={l.id}>
-                            {l.name}
-                          </option>
-                        ))}
-                      </Select>
-                      <Button type="submit" loading={submitting}>
-                        Add machine
-                      </Button>
-                    </div>
-                  </form>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        )}
-      </Shell>
+                      ))}
+                    </Select>
+                    <Button type="submit" loading={submitting}>
+                      Add machine
+                    </Button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+    </>
+  )
+
+  if (session) {
+    return (
+      <AppShell role={session.role} name={session.name}>
+        {content}
+      </AppShell>
+    )
+  }
+
+  return (
+    <Worker>
+      <BackLink to="/">{WORDS.back}</BackLink>
+      {content}
+    </Worker>
+  )
+}
+
+function Worker({ children }: { children: ReactNode }) {
+  return (
+    <div className="lang-dev">
+      <Shell wide>{children}</Shell>
     </div>
   )
 }

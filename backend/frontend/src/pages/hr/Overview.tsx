@@ -1,8 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Calendar, Check, Plus, Upload, X } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { BackLink, PageHeader, Shell, WhoAmI } from '../../components/layout'
-import { StaffNav } from '../../components/StaffNav'
+import { AppShell } from '../../components/AppShell'
+import { PageHeader } from '../../components/layout'
 import { Badge, Button, EmptyState, Field, Select } from '../../components/ui'
 import { useToast } from '../../components/Toast'
 import { apiAuth } from '../../lib/api'
@@ -192,18 +192,10 @@ export default function Overview() {
   if (!staff) return null
 
   return (
-    <Shell wide>
-      <BackLink to="/">Home</BackLink>
-
+    <AppShell role={staff.role} name={staff.name}>
       <PageHeader
         title="HR"
         subtitle="Leave requests and, for HR/recruiting roles, the hiring pipeline."
-        right={
-          <div className="flex items-center gap-3">
-            <StaffNav role={staff.role} />
-            <WhoAmI name={staff.name} role={staff.role} />
-          </div>
-        }
       />
 
       <section className="mb-10">
@@ -429,6 +421,6 @@ export default function Overview() {
           </div>
         </section>
       )}
-    </Shell>
+    </AppShell>
   )
 }

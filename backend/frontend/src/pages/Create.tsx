@@ -2,7 +2,8 @@ import { motion } from 'framer-motion'
 import { ChevronRight, Mic, Square, Upload, Wand2 } from 'lucide-react'
 import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BackLink, PageHeader, Shell } from '../components/layout'
+import { AppShell } from '../components/AppShell'
+import { BackLink, PageHeader } from '../components/layout'
 import { Button, Select, Spinner } from '../components/ui'
 import { apiAuth, getMachine } from '../lib/api'
 import { useRequireRole } from '../hooks/useSession'
@@ -138,17 +139,17 @@ export default function Create() {
 
   if (!machineId) {
     return (
-      <Shell>
+      <AppShell role={staff.role} name={staff.name}>
         <BackLink to="/machines">Machines</BackLink>
         <p className="rounded-2xl bg-stop-bg px-4 py-3 text-sm font-medium text-stop">
           No machine chosen. Go back and pick one.
         </p>
-      </Shell>
+      </AppShell>
     )
   }
 
   return (
-    <Shell>
+    <AppShell role={staff.role} name={staff.name}>
       <BackLink to="/machines">Machines</BackLink>
 
       <PageHeader
@@ -254,6 +255,6 @@ export default function Create() {
           )}
         </motion.div>
       )}
-    </Shell>
+    </AppShell>
   )
 }
