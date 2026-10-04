@@ -76,19 +76,28 @@ def clip(name: str, text: str) -> Path:
 
 def _signup_or_signin(email: str) -> str:
     """Create the demo auth user the first time this script runs against a given Supabase
-    project; on later runs it already exists, so fall back to signing in."""
+    project; on later runs it already exists, so fall back to signing in.
+
+    Uses the admin API (service-role key) rather than public signup: a cloud project's public
+    signup endpoint (a) format-validates emails more strictly than local `supabase start` and
+    rejects fake TLDs like `.local`/`.test` outright, and (b) sends a real confirmation email
+    through Supabase's shared, tightly rate-limited sender even when the address passes - and an
+    unconfirmed user can't sign in by password at all. `email_confirm: true` on the admin create
+    sidesteps both: no email is sent, and the account is immediately usable. Confirmed live
+    against a cloud project, not just inferred from docs."""
     r = client.post(
-        f"{settings.supabase_url}/auth/v1/signup",
+        f"{settings.supabase_url}/auth/v1/admin/users",
+        headers={"apikey": settings.supabase_anon_key, "Authorization": f"Bearer {settings.supabase_service_role_key}"},
+        json={"email": email, "password": DEMO_PASSWORD, "email_confirm": True},
+    )
+    if r.status_code == 200:
+        return r.json()["id"]
+    r = client.post(
+        f"{settings.supabase_url}/auth/v1/token?grant_type=password",
         headers={"apikey": settings.supabase_anon_key},
         json={"email": email, "password": DEMO_PASSWORD},
     )
-    if r.status_code != 200:
-        r = client.post(
-            f"{settings.supabase_url}/auth/v1/token?grant_type=password",
-            headers={"apikey": settings.supabase_anon_key},
-            json={"email": email, "password": DEMO_PASSWORD},
-        )
-        r.raise_for_status()
+    r.raise_for_status()
     return r.json()["user"]["id"]
 
 

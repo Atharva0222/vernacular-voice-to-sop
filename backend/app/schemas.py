@@ -188,7 +188,7 @@ class EmployeeSummary(BaseModel):
     job_title: str | None
     direct_manager_id: int | None
     employment_status: EmploymentStatus
-    hire_date: str | None
+    hire_date: date | None
     created_at: datetime
 
 
