@@ -33,9 +33,12 @@ back out to a sibling `frontend/` without updating both platforms' configs.
 - `backend/migrations/` — Alembic migrations, hand-written Postgres DDL (see "Database" below)
 - `backend/tests/` — pytest suite
 - `backend/scripts/` — `e2e.py` (API checklist against a running server; also seeds its own demo
-  org/Supabase Auth users on first run - see `ensure_demo_org()`), `run_test.ps1` (Windows
-  one-command test runner), `sample_sop.py`, `hi_multistep.mp3` (sample Hindi audio for manual
-  testing)
+  org/Supabase Auth users on first run - see `ensure_demo_org()`), `seed_demo.py` (builds on
+  `ensure_demo_org()` to seed richer CRM-module demo data - departments, worker-role employees,
+  shifts/attendance, leave, a full recruitment pipeline, and varied worker reports including a
+  confirmed cluster - so the staff dashboards have something to show instead of empty states;
+  idempotent, per-section guarded, safe to rerun), `run_test.ps1` (Windows one-command test
+  runner), `sample_sop.py`, `hi_multistep.mp3` (sample Hindi audio for manual testing)
 - `docs/` — historical planning docs (`auth-plan.md`, `feature-plan.md`, `feature.md`) from
   before the Supabase/CRM migration; these describe decisions as they were made at the time and
   are **not** kept in sync with later refactors - do not treat them as current
@@ -84,6 +87,26 @@ docker build -t voice-to-sop backend \
   --build-arg VITE_SUPABASE_URL=... --build-arg VITE_SUPABASE_ANON_KEY=...
 docker run --env-file backend/.env -p 8000:8000 voice-to-sop
 ```
+
+Or `backend/docker-compose.yml` for the same thing without retyping flags: `docker compose up -d
+--build` from `backend/`. It reads both the build args and the runtime env from the same
+`backend/.env` - which means `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` need to be duplicated
+into that file too (Compose's `build.args` can only pull from its own `.env`/shell environment,
+not from `env_file:`, so the plain `V2S_SUPABASE_*` vars aren't visible to the build stage; see
+`.env.example`). It also binds the container to `127.0.0.1:8000` only (not `0.0.0.0`) and caps it
+at `mem_limit: 2g` - deliberate for sharing a host with other services: Whisper-medium on CPU can
+run 2.5-3GB RSS on first real use (lazy-loaded, so this only hits on the first transcription, not
+at boot), so the cap makes that an isolated container restart via `restart: unless-stopped`
+rather than a host-wide OOM risk. **If this container ever starts in a `Restarting (1)` crash
+loop**, check `V2S_DATABASE_URL` first - the direct-connection host
+(`db.<ref>.supabase.co`) can be IPv6-only on a cloud project (confirmed on a real project: it had
+an AAAA record and no A record at all), which hangs forever from a host with no IPv6 route. Point
+it at the Supavisor **session-mode** pooler instead (`aws-0-<region>.pooler.supabase.com:5432`,
+username `postgres.<project-ref>`) - not transaction-mode (port 6543), which breaks psycopg3's
+prepared-statement cache. Also worth knowing: removing the image (`docker rmi`) does **not**
+reclaim the build cache BuildKit kept around underneath it (seen in practice: an 11GB image left
+over 12GB of cache behind after the image itself was gone) - `docker builder prune -af` reclaims
+that separately.
 
 Two-stage build: a `node` stage runs `npm ci && npm run build` for the frontend (needs the
 `VITE_SUPABASE_*` build args — Vite inlines them into the bundle at build time, not runtime; the
@@ -172,12 +195,32 @@ enforced, scoped to one signed-in staff member — `identity` is either a Supaba
 string or an already-resolved person dict carrying one under `"_auth_uid"`) and
 `connect_service()` (RLS-bypassing, for the worker-facing routes only — see Auth above).
 
+**No `supabase-py` SDK dependency, on purpose.** It's never imported anywhere in
+`app`/`scripts`/`tests` — every Supabase call already goes through raw `httpx` (Auth, Storage) or
+`psycopg`/SQLAlchemy (Postgres) directly, per this section and Auth above. It used to be in
+`requirements.txt` anyway, unused, and its own `httpx<0.28` pin silently conflicted with the
+`httpx==0.28.1` pinned a few lines below — breaking `pip install -r requirements.txt` from
+scratch (any fresh Docker build fails immediately; a long-lived local `.venv` can mask this since
+it's never force-reinstalled against an updated pin, which is exactly how it went unnoticed).
+Removed for both reasons. Don't re-add it.
+
 **Nothing seeds or creates schema on app startup.** The old SQLite-era `db.init()` (idempotent
 `CREATE TABLE IF NOT EXISTS` + demo-org seeding on every boot) is gone — a shared hosted
 Postgres instance isn't a per-dev scratch file, so DDL only ever happens via `alembic upgrade
 head`, run explicitly (locally, and as the first thing the Docker image's `CMD` does on every
 deploy). For local dev/demo data, use `scripts/e2e.py`'s `ensure_demo_org()` instead (idempotent,
 bails out rather than colliding if the target project already has unrelated data).
+
+**`ensure_demo_org()`'s account creation only works against a cloud project because it uses the
+Supabase admin API, not public signup** - confirmed by actually hitting this against a real cloud
+project, not inferred from docs. Public `/auth/v1/signup` format-validates emails more strictly
+on a hosted project than the local CLI stack and rejects fake-TLD demo addresses outright
+(`email_address_invalid`); an address that does pass just trades that for the shared sender's
+`over_email_send_rate_limit`, and either way an unconfirmed account can't sign in by password at
+all. `_signup_or_signin()` instead calls `POST {supabase_url}/auth/v1/admin/users` with the
+service-role key and `email_confirm: true` - no email sent, account usable immediately - falling
+back to a password sign-in only on `422 email_exists` (already created, on a rerun). Don't revert
+this to plain public signup on the assumption it only ever runs against the local stack.
 
 **Every migration is hand-written Postgres DDL.** There is no schema-defining Python constant to
 import the way `app.db.SCHEMA` once worked for SQLite — RLS policies, `SECURITY DEFINER`
