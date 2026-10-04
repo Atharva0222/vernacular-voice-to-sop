@@ -67,6 +67,17 @@ ruff check app tests                  # lint
 alembic revision -m "..."              # scaffold a new migration (hand-write the DDL - see Database below)
 ```
 
+Already have a Supabase project in the cloud? Skip `supabase init && supabase start` entirely -
+just fill `.env`'s `V2S_SUPABASE_URL`/`V2S_SUPABASE_ANON_KEY`/`V2S_SUPABASE_SERVICE_ROLE_KEY`/
+`V2S_DATABASE_URL` from that project's dashboard instead, then run `alembic upgrade head` /
+`uvicorn app.main:app --reload --port 8001` straight on the host, no Docker involved. This is
+confirmed working end-to-end, not just theoretically compatible: `app/config.py`'s `Settings`
+model needed one real fix for it - see Database below for why. `pytest` is the one thing that
+still wants the local `supabase start` stack (see Testing conventions below) - it truncates and
+reseeds a fixed demo org every test run, which is not something you want happening to a real
+cloud project's data; point it at a disposable project if you want the suite to run against the
+cloud too.
+
 ### Frontend (run from `backend/frontend/`)
 
 ```bash
@@ -93,7 +104,16 @@ Or `backend/docker-compose.yml` for the same thing without retyping flags: `dock
 `backend/.env` - which means `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` need to be duplicated
 into that file too (Compose's `build.args` can only pull from its own `.env`/shell environment,
 not from `env_file:`, so the plain `V2S_SUPABASE_*` vars aren't visible to the build stage; see
-`.env.example`). It also binds the container to `127.0.0.1:8000` only (not `0.0.0.0`) and caps it
+`.env.example`). This duplication is also why `app/config.py`'s `Settings` sets `extra =
+"ignore"`: the exact same `.env` file is read directly by `pydantic-settings` (`env_file =
+".env"`) whenever anything runs the app without Docker - `uvicorn app.main:app` locally, or
+`alembic` against it - and without that flag, the unprefixed `VITE_SUPABASE_URL`/
+`VITE_SUPABASE_ANON_KEY` keys trip pydantic's `extra_forbidden` validation and crash `Settings()`
+at import time, before the app even starts. Confirmed by hitting that crash for real the first
+time this app was run straight against a cloud Supabase project instead of through `docker
+compose` - not a hypothetical. Don't remove `extra = "ignore"` or split those keys into a
+separate file without accounting for both call paths. It also binds the container to
+`127.0.0.1:8000` only (not `0.0.0.0`) and caps it
 at `mem_limit: 2g` - deliberate for sharing a host with other services: Whisper-medium on CPU can
 run 2.5-3GB RSS on first real use (lazy-loaded, so this only hits on the first transcription, not
 at boot), so the cap makes that an isolated container restart via `restart: unless-stopped`

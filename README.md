@@ -29,18 +29,24 @@ docs from before the CRM expansion - not kept in sync, see `CLAUDE.md`.
 
 ## Run locally
 
-Needs a Supabase project - for local dev, the Supabase CLI's own stack (`supabase start`,
-requires Docker) gives you real Postgres + Auth + Storage with no cloud account:
+Needs a Supabase project - either a cloud one you already have, or for local dev with no cloud
+account, the Supabase CLI's own stack (`supabase start`, requires Docker):
 
 ```bash
 cd backend
 supabase init && supabase start   # prints local URLs/keys; `supabase status` reprints them later
 ```
 
+Already on a cloud project? Skip the block above - just put that project's values straight into
+`.env` below (Project Settings → API / Database on the Supabase dashboard) and run everything
+else exactly the same way, no Docker required. The one exception is `pytest` (see
+Development below), which still wants the local CLI stack since it truncates and reseeds a demo
+org on every run.
+
 ```bash
 cd backend
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env        # then set the Supabase values (supabase status) and your LLM key
+cp .env.example .env        # then set the Supabase values (supabase status, or your cloud project's dashboard) and your LLM key
 alembic upgrade head        # schema is Alembic-managed - nothing seeds it on boot, see below
 cd frontend && cp .env.example .env   # set VITE_SUPABASE_URL/VITE_SUPABASE_ANON_KEY
 npm install && npm run build && cd ..   # one-time, rebuild after editing frontend/
@@ -66,7 +72,9 @@ proxies `/api` to the backend on port 8001, so both can run side by side.
 Docker: `docker build -t voice-to-sop backend --build-arg VITE_SUPABASE_URL=... --build-arg
 VITE_SUPABASE_ANON_KEY=... && docker run --env-file backend/.env -p 8000:8000 voice-to-sop`
 (the build args are needed because Vite inlines them into the bundle at build time, not
-runtime - see `backend/Dockerfile`).
+runtime - see `backend/Dockerfile`). Running without Docker, `backend/.env` can still carry
+those same `VITE_SUPABASE_*` keys harmlessly - `app/config.py`'s `Settings` sets `extra =
+"ignore"` so pydantic-settings doesn't choke on them when it reads `.env` directly.
 
 ## Development
 

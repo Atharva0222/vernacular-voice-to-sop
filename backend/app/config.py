@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = "V2S_"
         env_file = ".env"
+        extra = "ignore"  # .env also carries VITE_-prefixed dupes for docker-compose build args
 
 
 settings = Settings()
