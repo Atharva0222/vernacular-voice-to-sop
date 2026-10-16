@@ -10,6 +10,8 @@ htmlcov/
 # Secrets and local config
 .env
 .env.local
+.env.bak
+
 .claude/settings.local.json
 
 # Generated at runtime: databases, synthesized audio, logs
