@@ -1,7 +1,9 @@
 import logging
 import re
 import threading
+from pathlib import Path
 
+import httpx
 import librosa
 import numpy as np
 import torch
@@ -144,6 +146,25 @@ def detect_language(audio: np.ndarray) -> str:
     return "hi"
 
 
+def _transcribe_remote(path: str, language: str) -> str:
+    """Transcribe the whole clip on a hosted OpenAI-compatible endpoint.
+
+    Sends the file as-is: the hosted models handle clips far longer than 30s themselves, so
+    none of the local silence-windowing (and the truncation it causes) applies here.
+    """
+    with open(path, "rb") as fh:
+        resp = httpx.post(
+            f"{settings.asr_remote_base_url}/audio/transcriptions",
+            headers={"Authorization": f"Bearer {settings.asr_remote_api_key}"},
+            files={"file": (Path(path).name, fh, "application/octet-stream")},
+            data={"model": settings.asr_remote_model, "language": language,
+                  "response_format": "json"},
+            timeout=settings.llm_timeout_seconds,
+        )
+    resp.raise_for_status()
+    return resp.json()["text"].strip()
+
+
 def transcribe(path: str, language_hint: str | None) -> tuple[str, str]:
     audio = load_audio(path)
 
@@ -151,6 +172,9 @@ def transcribe(path: str, language_hint: str | None) -> tuple[str, str]:
         language = language_hint
     else:
         language = detect_language(audio)
+
+    if settings.asr_backend == "remote":
+        return _transcribe_remote(path, language), language
 
     asr = _get_pipeline(language)
     # generation_config must be passed explicitly here too - assigning it to

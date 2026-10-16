@@ -115,7 +115,9 @@ All read from the environment or `backend/.env`, prefix `V2S_`.
 | `V2S_CORS_ORIGINS` | *empty* | Allowed browser origins. The bundled preview is same-origin and needs none. |
 | `V2S_LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible endpoint (Ollama locally, Groq in deployment). |
 | `V2S_LLM_MODEL` / `V2S_LLM_API_KEY` | `llama3.2:3b` / `ollama` | Model and key for that endpoint. |
-| `V2S_ASR_MODEL_HI` / `V2S_ASR_MODEL_MR` / `V2S_ASR_DEVICE` | see `app/config.py` | ASR checkpoints and device (`auto`/`cpu`/`cuda`/`mps`). |
+| `V2S_ASR_BACKEND` | `local` | `local` runs Whisper in-process (no audio leaves the host; ~5x slower than realtime on CPU). `remote` posts the clip to a hosted endpoint instead - seconds not minutes, and no window truncation, but worker audio goes to that provider. See Privacy. |
+| `V2S_ASR_REMOTE_MODEL` / `V2S_ASR_REMOTE_BASE_URL` / `V2S_ASR_REMOTE_API_KEY` | `whisper-large-v3-turbo`, = the `V2S_LLM_*` endpoint | Used only when `V2S_ASR_BACKEND=remote`. Defaults to the LLM credentials, since Groq serves both from one key. |
+| `V2S_ASR_MODEL_HI` / `V2S_ASR_MODEL_MR` / `V2S_ASR_DEVICE` | see `app/config.py` | ASR checkpoints and device (`auto`/`cpu`/`cuda`/`mps`), used when `V2S_ASR_BACKEND=local`. |
 | `V2S_TTS_VOICE_HI` / `V2S_TTS_VOICE_MR` | edge-tts voices | Playback voices. |
 | `V2S_TMP_DIR` | system temp `/voice-to-sop` | Uploads, audio cache and the default DB location. |
 
@@ -196,7 +198,11 @@ processes. Staff sign-in is rate-limited by Supabase itself, not this app.
 
 No worker identity is captured anywhere. Report audio is deleted as soon as it is
 transcribed and is never fetchable, so a voice cannot be recognised; only cleaned text is
-kept. Reports are routed to the line's manager and are invisible to supervisors. On a small
+kept. **This does not mean the audio never leaves the host** - that is true only with
+`V2S_ASR_BACKEND=local` (the default). With `remote`, the clip is sent to the configured
+transcription provider before being deleted locally, so the recording transits a third party.
+Everything downstream is unchanged either way: still no identity, still text-only storage.
+Reports are routed to the line's manager and are invisible to supervisors. On a small
 line a manager may still guess who spoke from the content — the design reduces that risk, it
 does not remove it.
 

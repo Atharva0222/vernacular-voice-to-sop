@@ -31,3 +31,6 @@ Thumbs.db
 
 # Open-source lab workspace (upstream clones, not part of this project)
 rospl/
+.env.bak
+.env.*.corrupt
+.env.env.corrupt

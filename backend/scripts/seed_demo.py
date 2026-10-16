@@ -160,7 +160,7 @@ def seed_machine_b(conn: Connection) -> int:
     return machine_id
 
 
-STEPS = [
+PRESS_1_STEPS = [
     ("बिजली का स्विच बंद करके ही मशीन खोलें।", True, "power_off"),
     ("पैडल को पैर से धीरे धीरे दबाएं।", False, "check"),
     ("सत्रह नंबर का बोल्ट लगाकर प्लेट को कस दें।", False, "moving_parts"),
@@ -168,8 +168,19 @@ STEPS = [
     ("काम खत्म होने के बाद मशीन को साफ करके रिपोर्ट लिखें।", False, "clean"),
 ]
 
+# Line B's press is a different machine with a different procedure - a hydraulic press with a
+# die change - so the two lines' cards are visibly distinct in a demo. Deliberately avoids
+# Press 1's bolt numbers so the "card says 17, I used 19" case stays specific to Press 1.
+PRESS_2_STEPS = [
+    ("तेल का स्तर जाँचकर ही हाइड्रोलिक प्रेस चालू करें।", False, "inspect"),
+    ("डाई बदलने से पहले दबाव पूरी तरह छोड़ दें।", True, "power_off"),
+    ("चौदह नंबर की डाई को दोनों क्लैंप से कस कर बाँधें।", False, "measure"),
+    ("सेफ्टी गार्ड बंद किए बिना पैडल न दबाएं।", True, "ppe"),
+    ("हर पचास पीस के बाद माप जाँचकर रजिस्टर में लिखें।", False, "check"),
+]
 
-def seed_sop(conn: Connection, machine_id: int, title: str) -> dict:
+
+def seed_sop(conn: Connection, machine_id: int, title: str, steps_source: list[tuple]) -> dict:
     existing_id = conn.execute(text("SELECT id FROM sops WHERE machine_id = :m"), {"m": machine_id}).scalar()
     if existing_id:
         steps = conn.execute(
@@ -181,10 +192,10 @@ def seed_sop(conn: Connection, machine_id: int, title: str) -> dict:
             "INSERT INTO sops (machine_id, title, language, transcript, version) "
             "VALUES (:m, :t, 'hi', :tr, 1) RETURNING id"
         ),
-        {"m": machine_id, "t": title, "tr": " ".join(s[0] for s in STEPS)},
+        {"m": machine_id, "t": title, "tr": " ".join(s[0] for s in steps_source)},
     ).scalar_one()
     steps = []
-    for i, (step_text, warn, icon) in enumerate(STEPS, start=1):
+    for i, (step_text, warn, icon) in enumerate(steps_source, start=1):
         step_id = conn.execute(
             text(
                 "INSERT INTO steps (sop_id, step_number, text, is_safety_warning, icon) "
@@ -464,8 +475,8 @@ def main() -> None:
         seed_extra_staff(conn, dept)
         worker_ids = seed_workers(conn, dept)
         machine_b = seed_machine_b(conn)
-        sop_a = seed_sop(conn, 1, "Press 1")
-        sop_b = seed_sop(conn, machine_b, "Press 2")
+        sop_a = seed_sop(conn, 1, "Press 1", PRESS_1_STEPS)
+        sop_b = seed_sop(conn, machine_b, "Press 2", PRESS_2_STEPS)
         seed_reports(conn, sop_a, sop_b)
         shifts = seed_shifts(conn)
         seed_workforce(conn, worker_ids, shifts, machine_a=1, machine_b=machine_b)

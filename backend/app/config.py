@@ -11,11 +11,24 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # Stage 1 - ASR
+    # Stage 1 - ASR. "local" runs the fine-tuned Whisper checkpoints below in-process, so no
+    # audio leaves the host; measured at ~5x slower than realtime on a 12-core CPU with no GPU
+    # (36s of speech took 178s), which is too slow to hold a worker at the machine. "remote"
+    # posts the clip to an OpenAI-compatible audio/transcriptions endpoint instead - seconds
+    # rather than minutes, and no 4-second windowing, at the cost of sending worker audio to
+    # that provider. Choose deliberately: the privacy claim in README/CLAUDE.md only holds on
+    # "local".
+    asr_backend: str = "local"  # local | remote
     asr_model_hi: str = "vasista22/whisper-hindi-medium"
     asr_model_mr: str = "steja/whisper-small-marathi"
     asr_lang_id_model: str = "openai/whisper-tiny"
     asr_device: str = "auto"  # auto | cpu | cuda | mps
+
+    # Used only when asr_backend == "remote". Defaults to the LLM endpoint's credentials, since
+    # Groq serves both from one key; set them separately to send audio somewhere else.
+    asr_remote_model: str = "whisper-large-v3-turbo"
+    asr_remote_base_url: str | None = None
+    asr_remote_api_key: str | None = None
 
     # Stage 2 - LLM (OpenAI-compatible endpoint, defaults to local Ollama)
     llm_base_url: str = "http://localhost:11434/v1"
@@ -59,5 +72,7 @@ class Settings(BaseSettings):
 
 settings = Settings()
 settings.database_migrate_url = settings.database_migrate_url or settings.database_url
+settings.asr_remote_base_url = settings.asr_remote_base_url or settings.llm_base_url
+settings.asr_remote_api_key = settings.asr_remote_api_key or settings.llm_api_key
 settings.tmp_dir.mkdir(parents=True, exist_ok=True)
 (settings.tmp_dir / "audio_cache").mkdir(parents=True, exist_ok=True)

@@ -9,7 +9,11 @@ import { api, getMachine } from '../lib/api'
 import { iconFor } from '../lib/icons'
 import type { MachineSummary, StoredSOP, StoredStep } from '../lib/types'
 
-const POLL_MS = 10000
+// While the pipeline is still transcribing, poll often - the worker is stood at the machine
+// waiting, and /api/receipt is a single indexed row read. Once it is out for a manager's reply
+// the wait is human-scale, so back off rather than hammer the endpoint for hours.
+const POLL_MS = 1500
+const MANAGER_POLL_MS = 15000
 
 const WORDS = {
   loading: (n: number) => `${n} कार्ड की आवाज़ तैयार हो रही है...`,
@@ -121,7 +125,7 @@ export default function Cards() {
       return
     }
     setSpeakHint(WORDS.toManager)
-    setTimeout(() => pollAnswer(receipt), POLL_MS)
+    setTimeout(() => pollAnswer(receipt), MANAGER_POLL_MS)
   }
 
   function playAnswer(audioKey: string, message: string) {
