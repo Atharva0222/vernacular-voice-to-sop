@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, Mic, Play, Volume2 } from 'lucide-react'
+import { AlertTriangle, Image as ImageIcon, Mic, Play, Volume2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { BackLink, Shell } from '../components/layout'
+import { IllustrationModal } from '../components/IllustrationModal'
 import { EmptyState, Spinner } from '../components/ui'
 import { Waveform } from '../components/Waveform'
 import { api, getMachine } from '../lib/api'
@@ -49,6 +50,7 @@ export default function Cards() {
   const [speakHint, setSpeakHint] = useState('जो गड़बड़ है वह बताएं, या मशीन के बारे में पूछें।')
   const [stream, setStream] = useState<MediaStream | null>(null)
   const [answer, setAnswer] = useState<{ audio: HTMLAudioElement } | null>(null)
+  const [illustrationStep, setIllustrationStep] = useState<Step | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const heldRef = useRef(false)
@@ -247,6 +249,13 @@ export default function Cards() {
                           </span>
                         )}
                       </div>
+                      <button
+                        onClick={() => setIllustrationStep(step)}
+                        aria-label="चित्र देखें"
+                        className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border-2 border-primary text-primary transition-colors hover:bg-primary hover:text-white"
+                      >
+                        <ImageIcon size={20} />
+                      </button>
                       {step.audio_url && (
                         <button
                           onClick={() => new Audio(step.audio_url!).play()}
@@ -263,6 +272,8 @@ export default function Cards() {
             </div>
           )}
         </div>
+
+        <IllustrationModal step={illustrationStep} onClose={() => setIllustrationStep(null)} />
 
         {sop && (
           <div className="fixed inset-x-0 bottom-0 z-10 border-t border-border bg-white/90 backdrop-blur-md">
