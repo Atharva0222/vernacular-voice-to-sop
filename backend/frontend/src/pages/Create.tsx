@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ChevronRight, Mic, Square, Upload, Wand2 } from 'lucide-react'
+import { ChevronRight, Mic, Square, Trash2, Upload, Wand2, X } from 'lucide-react'
 import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
@@ -36,6 +36,7 @@ export default function Create() {
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
+  const cancelledRef = useRef(false)
 
   useEffect(() => {
     if (!staff || !machineId) return
@@ -67,13 +68,18 @@ export default function Create() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
         chunksRef.current = []
+        cancelledRef.current = false
         const recorder = new MediaRecorder(stream)
         recorder.ondataavailable = (e) => chunksRef.current.push(e.data)
         recorder.onstop = () => {
+          stream.getTracks().forEach((t) => t.stop())
+          if (cancelledRef.current) {
+            chunksRef.current = []
+            return
+          }
           const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
           setAudioBlob(blob)
           setAudioLabel(`Recorded ${(blob.size / 1024).toFixed(0)} KB`)
-          stream.getTracks().forEach((t) => t.stop())
         }
         recorder.start()
         recorderRef.current = recorder
@@ -87,8 +93,26 @@ export default function Create() {
     }
   }
 
+  /** Abandon an in-progress recording: release the mic and keep no clip. */
+  function cancelRecording() {
+    cancelledRef.current = true
+    recorderRef.current?.stop()
+    setIsRecording(false)
+    discardClip()
+  }
+
+  /** Drop the captured clip so another recording or upload can replace it. */
+  function discardClip() {
+    setAudioBlob(null)
+    setAudioLabel('')
+    setTranscript(null)
+    setError(null)
+  }
+
   function onFileChosen(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
+    // Reset the input so re-picking the same file after a discard still fires onChange.
+    e.target.value = ''
     if (file) {
       setAudioBlob(file)
       setAudioLabel(file.name)
@@ -224,14 +248,28 @@ export default function Create() {
           <div className="flex flex-wrap items-center gap-3">
             <Button variant={isRecording ? 'danger' : 'primary'} onClick={toggleRecord}>
               {isRecording ? <Square size={16} /> : <Mic size={16} />}
-              {isRecording ? 'Stop recording' : 'Start recording'}
+              {isRecording ? 'Stop recording' : audioBlob ? 'Record again' : 'Start recording'}
             </Button>
-            <span className="text-sm text-ink-faint">or</span>
-            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border-strong bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-all hover:-translate-y-0.5 hover:border-ink-soft">
-              <Upload size={16} /> Upload a clip
-              <input type="file" accept="audio/*" className="hidden" onChange={onFileChosen} />
-            </label>
+            {isRecording && (
+              <Button variant="secondary" onClick={cancelRecording}>
+                <X size={16} /> Cancel
+              </Button>
+            )}
+            {!isRecording && !audioBlob && (
+              <>
+                <span className="text-sm text-ink-faint">or</span>
+                <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border-strong bg-white px-5 py-2.5 text-sm font-semibold text-ink transition-all hover:-translate-y-0.5 hover:border-ink-soft">
+                  <Upload size={16} /> Upload a clip
+                  <input type="file" accept="audio/*" className="hidden" onChange={onFileChosen} />
+                </label>
+              </>
+            )}
             {audioLabel && <span className="text-sm text-ink-soft">{audioLabel}</span>}
+            {!isRecording && audioBlob && (
+              <Button variant="secondary" onClick={discardClip} disabled={generating}>
+                <Trash2 size={16} /> Discard
+              </Button>
+            )}
           </div>
 
           <Button className="mt-5 w-full" disabled={!audioBlob} loading={generating} onClick={generate}>

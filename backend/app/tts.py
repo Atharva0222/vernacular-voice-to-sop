@@ -21,7 +21,12 @@ async def synthesize(text: str, language: str) -> tuple[str, str]:
     path, key = _cache_path(text, voice)
     if not path.exists():
         communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(str(path))
+        # Synthesize to a temp file and move it into place only once it is complete: a failed
+        # save leaves a 0-byte .mp3 behind, which the path.exists() check above would then
+        # treat as a valid cache entry forever, serving silence.
+        partial = path.with_suffix(".part")
+        await communicate.save(str(partial))
+        partial.replace(path)
     return key, str(path)
 
 

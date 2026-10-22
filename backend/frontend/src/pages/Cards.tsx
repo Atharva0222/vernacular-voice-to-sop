@@ -4,17 +4,20 @@ import { useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { BackLink, Shell } from '../components/layout'
 import { IllustrationModal } from '../components/IllustrationModal'
+import { MyAnswers } from '../components/MyAnswers'
+import { ReplyBoard } from '../components/ReplyBoard'
 import { EmptyState, Spinner } from '../components/ui'
 import { Waveform } from '../components/Waveform'
 import { api, getMachine } from '../lib/api'
+import { saveReceipt } from '../lib/receipts'
 import { iconFor } from '../lib/icons'
 import type { MachineSummary, StoredSOP, StoredStep } from '../lib/types'
 
-// While the pipeline is still transcribing, poll often - the worker is stood at the machine
-// waiting, and /api/receipt is a single indexed row read. Once it is out for a manager's reply
-// the wait is human-scale, so back off rather than hammer the endpoint for hours.
+// Poll only while the pipeline is still transcribing - the worker is stood at the machine
+// waiting, and /api/receipt is a single indexed row read. A manager's reply is NOT waited on
+// here: it can take hours, by which time the worker has walked away. It is delivered by
+// ReplyBoard instead, which the worker pulls when they come back.
 const POLL_MS = 1500
-const MANAGER_POLL_MS = 15000
 
 const WORDS = {
   loading: (n: number) => `${n} कार्ड की आवाज़ तैयार हो रही है...`,
@@ -23,8 +26,7 @@ const WORDS = {
   listening: 'सुन रहे हैं...',
   heard: 'सुन लिया गया — कार्ड से मिलाया जा रहा है...',
   fromSop: 'कार्ड में इसका जवाब है — सुनने के लिए दबाएं',
-  toManager: 'मैनेजर को भेज दिया गया है',
-  reply: 'मैनेजर का जवाब आया है — सुनने के लिए दबाएं',
+  toManager: 'मैनेजर को भेज दिया गया है। जवाब आने पर इसी पेज पर ऊपर दिखेगा।',
   unclear: 'आवाज़ समझ नहीं आई। कृपया फिर से बोलें।',
   noMachine: 'कोई मशीन नहीं चुनी गई। पीछे जाकर मशीन चुनें।',
   noCards: 'इस मशीन के लिए अभी कोई कार्ड नहीं है।',
@@ -122,12 +124,9 @@ export default function Cards() {
       if (report.ack_audio_key) playAnswer(report.ack_audio_key, WORDS.fromSop)
       return
     }
-    if (report.ack_audio_key) {
-      playAnswer(report.ack_audio_key, WORDS.reply)
-      return
-    }
+    // Out for a human reply. Stop here: nothing is auto-played at the worker later, and the
+    // answer surfaces in ReplyBoard for them to tap when they return.
     setSpeakHint(WORDS.toManager)
-    setTimeout(() => pollAnswer(receipt), MANAGER_POLL_MS)
   }
 
   function playAnswer(audioKey: string, message: string) {
@@ -162,6 +161,7 @@ export default function Cards() {
       form.append('language', sop.language)
       try {
         const created = await api<{ receipt: string }>('/api/ask', { method: 'POST', body: form })
+        if (machineId) saveReceipt(machineId, created.receipt)
         setSpeakHint(WORDS.heard)
         pollAnswer(created.receipt)
       } catch (err) {
@@ -215,6 +215,9 @@ export default function Cards() {
               }
             />
           )}
+
+          {machineId && <MyAnswers machineId={machineId} />}
+          {machineId && <ReplyBoard machineId={machineId} />}
 
           {steps && (
             <div className="flex flex-col gap-4">

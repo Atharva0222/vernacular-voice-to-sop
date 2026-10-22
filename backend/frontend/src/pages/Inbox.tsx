@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
-import { Check, Inbox as InboxIcon, X } from 'lucide-react'
-import { useState } from 'react'
+import { Check, Inbox as InboxIcon, Mic, Square, X } from 'lucide-react'
+import { useRef, useState } from 'react'
 import { AppShell } from '../components/AppShell'
 import { PageHeader } from '../components/layout'
 import { Badge, Button, EmptyState, Field, Select, Spinner } from '../components/ui'
@@ -128,8 +128,52 @@ function ReportCard({ report: r, index, onDone, notify }: { report: Report; inde
   const [reply, setReply] = useState('')
   const [nextStatus, setNextStatus] = useState<string>(r.status === 'open' || r.status === 'acknowledged' || r.status === 'resolved' ? r.status : 'open')
   const [sending, setSending] = useState(false)
+  const [dictateLang, setDictateLang] = useState('en')
+  const [recording, setRecording] = useState(false)
+  const [transcribing, setTranscribing] = useState(false)
+  const recorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<BlobPart[]>([])
   const pending = r.status === 'received' || r.status === 'failed'
   const when = new Date(r.created_at).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })
+
+  /** Dictate the reply instead of typing it. The text lands in the same box, so it can be
+   * corrected before sending; it is translated into the worker's language on the server. */
+  async function toggleDictate() {
+    if (recording) {
+      recorderRef.current?.stop()
+      setRecording(false)
+      return
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      chunksRef.current = []
+      const recorder = new MediaRecorder(stream)
+      recorder.ondataavailable = (e) => chunksRef.current.push(e.data)
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop())
+        setTranscribing(true)
+        try {
+          const form = new FormData()
+          form.append('audio', new Blob(chunksRef.current, { type: 'audio/webm' }), 'reply.webm')
+          form.append('language', dictateLang)
+          const { transcript } = await apiAuth<{ transcript: string }>('/api/transcribe', {
+            method: 'POST',
+            body: form,
+          })
+          setReply((prev) => (prev.trim() ? `${prev.trim()} ${transcript}` : transcript))
+        } catch (err) {
+          notify('error', err instanceof Error ? err.message : 'Could not transcribe that.')
+        } finally {
+          setTranscribing(false)
+        }
+      }
+      recorder.start()
+      recorderRef.current = recorder
+      setRecording(true)
+    } catch (err) {
+      notify('error', 'The microphone is blocked or unavailable: ' + (err instanceof Error ? err.message : String(err)))
+    }
+  }
 
   async function send() {
     setSending(true)
@@ -194,11 +238,29 @@ function ReportCard({ report: r, index, onDone, notify }: { report: Report; inde
         <div className="mt-4 flex flex-wrap gap-2.5">
           <Field
             dir="auto"
-            placeholder={`Reply to the worker, spoken back in ${r.language === 'mr' ? 'Marathi' : 'Hindi'}`}
+            placeholder={
+              transcribing
+                ? 'Writing down what you said...'
+                : `Type or dictate - the worker hears it in ${r.language === 'mr' ? 'Marathi' : 'Hindi'}`
+            }
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             className="min-w-[220px] flex-1"
           />
+          <Select value={dictateLang} onChange={(e) => setDictateLang(e.target.value)} disabled={recording}>
+            <option value="en">Speak English</option>
+            <option value="hi">Speak Hindi</option>
+            <option value="mr">Speak Marathi</option>
+          </Select>
+          <Button
+            size="sm"
+            variant={recording ? 'danger' : 'secondary'}
+            loading={transcribing}
+            onClick={toggleDictate}
+          >
+            {recording ? <Square size={14} /> : <Mic size={14} />}
+            {recording ? 'Stop' : 'Dictate'}
+          </Button>
           <Select value={nextStatus} onChange={(e) => setNextStatus(e.target.value)}>
             <option value="open">Open</option>
             <option value="acknowledged">Acknowledged</option>

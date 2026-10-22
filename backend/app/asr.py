@@ -166,6 +166,15 @@ def _transcribe_remote(path: str, language: str) -> str:
 
 
 def transcribe(path: str, language_hint: str | None) -> tuple[str, str]:
+    if language_hint and language_hint not in _MODEL_BY_LANG:
+        # A language we hold no local fine-tune for - 'en', for a manager dictating a reply.
+        # The hosted models are multilingual, so the hint goes straight through rather than
+        # being forced into Hindi or Marathi below. There is no local equivalent to fall back
+        # on, so say so plainly instead of silently transcribing English as Hindi.
+        if settings.asr_backend != "remote":
+            raise ValueError(f"language {language_hint!r} needs V2S_ASR_BACKEND=remote")
+        return _transcribe_remote(path, language_hint), language_hint
+
     audio = load_audio(path)
 
     if language_hint in _MODEL_BY_LANG:

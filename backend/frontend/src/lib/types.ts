@@ -208,3 +208,11 @@ export interface EmployeeSummary {
   hire_date: string | null
   created_at: string
 }
+
+export type MachineReply = {
+  id: number
+  text: string
+  audio_key: string
+  responded_at: string
+  step_number: number | null
+}

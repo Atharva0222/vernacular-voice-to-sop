@@ -2,13 +2,14 @@ import asyncio
 import logging
 import secrets
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy import text
 
-from app import asr, auth, corrections, db, guidance, routing, triage, tts
+from app import asr, auth, corrections, db, guidance, routing, translation, triage, tts
 from app.config import settings
 from app.limiter import limiter
 from app.routes.sop import get_sop
@@ -159,10 +160,16 @@ def ask(
 
 @router.get("/receipt/{receipt}", response_model=ReportReceipt)
 def get_receipt(receipt: str) -> ReportReceipt:
-    """Worker-facing: only processing status and the manager's voiced reply, nothing about the report."""
+    """Worker-facing: only processing status and the manager's voiced reply, nothing about the report.
+
+    The receipt is an unguessable bearer token, which is how a reply reaches one worker without
+    anyone ever learning who they are: whoever holds the ticket can claim the answer, like a
+    coat-check stub. No identity is stored or required at either end.
+    """
     with db.connect_service() as conn:
         row = conn.execute(
-            text("SELECT status, ack_audio_key, answered_by_sop FROM reports WHERE receipt = :receipt"),
+            text("SELECT status, ack_audio_key, answered_by_sop, response_text_worker AS text, "
+                 "responded_at FROM reports WHERE receipt = :receipt"),
             {"receipt": receipt},
         ).mappings().fetchone()
     if not row:
@@ -211,13 +218,21 @@ def list_reports(person: Reader, status: ReportStatus | None = None, kind: Repor
 
 @router.patch("/report/{report_id}", response_model=Report)
 async def update_report(report_id: int, req: ReportUpdate, person: Reader) -> Report:
-    """Set status and/or reply; a reply is voiced in the worker's language for playback on the card."""
+    """Set status and/or reply.
+
+    A reply is translated into the worker's own language before being voiced, since the manager
+    writes or dictates in whatever language suits them (English, in practice) and the worker
+    only ever hears it. The translated wording is kept in `response_text_worker`.
+    """
     report = _visible_report(report_id, person)
     if report.status in ("received", "failed"):
         raise HTTPException(409, f"report is {report.status}, not yet triaged")
     fields = req.model_dump(exclude_none=True)
     if req.response_text:
-        fields["ack_audio_key"], _ = await tts.synthesize(req.response_text, report.language)
+        spoken = await translation.to_worker_language(req.response_text, report.language)
+        fields["response_text_worker"] = spoken
+        fields["responded_at"] = datetime.now(UTC)
+        fields["ack_audio_key"], _ = await tts.synthesize(spoken, report.language)
     if fields:
         with db.connect(person) as conn:
             conn.execute(

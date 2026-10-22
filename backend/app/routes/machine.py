@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
 from app import auth, db
-from app.schemas import Line, MachineCreate, MachineSummary
+from app.schemas import Line, MachineCreate, MachineReply, MachineSummary
 
 router = APIRouter()
 Author = Annotated[dict, Depends(auth.sop_author)]
@@ -33,6 +33,42 @@ def list_machines() -> list[MachineSummary]:
     with db.connect_service() as conn:
         rows = conn.execute(text(f"{_SUMMARY_SQL} ORDER BY m.id")).mappings().fetchall()
     return [MachineSummary(**r) for r in rows]
+
+
+@router.get("/machine/{machine_id}/replies", response_model=list[MachineReply])
+def list_machine_replies(machine_id: int, limit: int = 20) -> list[MachineReply]:
+    """Answers that belong to this machine rather than to one person, newest first.
+
+    Keyed on the machine, not on whoever asked, because a worker has no account to deliver
+    anything to (see CLAUDE.md's Auth section). That is the right address for kind 'machine' and
+    'sop': "this press is unsafe until maintenance clears it" concerns everyone who walks up to
+    it, and delivering it only to the anonymous worker who happened to ask would leave the next
+    one to start a faulty machine.
+
+    Kind 'understanding' is excluded: a reply about one worker misreading a step is for that
+    worker, and reaches them through their own receipt (GET /api/receipt/{receipt}) instead.
+    Returns the reply alone - never the report's summary, kind or severity, which stay
+    manager-only.
+    """
+    with db.connect_service() as conn:
+        rows = conn.execute(
+            text("""
+                SELECT r.id, r.response_text_worker AS text, r.ack_audio_key AS audio_key,
+                       r.responded_at, st.step_number
+                FROM reports r
+                JOIN sops s ON s.id = r.sop_id
+                LEFT JOIN steps st ON st.id = r.step_id
+                WHERE s.machine_id = :machine_id
+                  AND r.answered_by_sop = FALSE
+                  AND r.kind IS DISTINCT FROM 'understanding'
+                  AND r.ack_audio_key IS NOT NULL
+                  AND r.response_text_worker IS NOT NULL
+                ORDER BY r.responded_at DESC NULLS LAST, r.id DESC
+                LIMIT :limit
+            """),
+            {"machine_id": machine_id, "limit": limit},
+        ).mappings().fetchall()
+    return [MachineReply(**r) for r in rows]
 
 
 @router.post("/machines", response_model=MachineSummary, status_code=201)

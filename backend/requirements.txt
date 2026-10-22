@@ -19,7 +19,7 @@ numpy<2
 soundfile==0.13.0
 librosa==0.10.2.post1
 
-edge-tts==7.2.8
+edge-tts==7.3.1
 
 httpx==0.28.1
 jiwer==3.0.5

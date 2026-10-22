@@ -4,11 +4,15 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 Language = Literal["hi", "mr"]
+# Languages the ASR will transcribe. Wider than Language on purpose: a manager may dictate a
+# reply in English, which is then translated into the worker's Language before it is voiced.
+# SOPs and worker reports stay restricted to Language.
+SpokenLanguage = Literal["hi", "mr", "en"]
 
 
 class TranscribeResponse(BaseModel):
     transcript: str
-    detected_language: Language
+    detected_language: SpokenLanguage
 
 
 class Step(BaseModel):
@@ -124,6 +128,10 @@ class ReportReceipt(BaseModel):
     status: ReportStatus
     ack_audio_key: str | None
     answered_by_sop: bool
+    # The reply as the worker hears it, so a receipt held on their own device can show the same
+    # card the machine board does. Still nothing about the report itself.
+    text: str | None = None
+    responded_at: datetime | None = None
 
 
 class Report(BaseModel):
@@ -148,6 +156,21 @@ class Report(BaseModel):
     cluster_id: int | None
     cluster_size: int
     confirmed: bool
+
+
+class MachineReply(BaseModel):
+    """A manager's answer as the worker receives it. Deliberately carries nothing about the
+    report behind it - no summary, severity or kind - matching ReportReceipt's discipline."""
+
+    id: int
+    text: str
+    audio_key: str
+    responded_at: datetime
+    step_number: int | None = None
+
+
+class Translation(BaseModel):
+    text: str
 
 
 class ReportUpdate(BaseModel):

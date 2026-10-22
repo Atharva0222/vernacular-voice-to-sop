@@ -12,7 +12,9 @@ from app.schemas import TranscribeResponse
 router = APIRouter()
 Author = Annotated[dict, Depends(auth.sop_author)]
 
-_ALLOWED_LANGS = {"hi", "mr", "auto"}
+# 'en' is for a manager dictating a reply to a worker, not for authoring an SOP: the reply is
+# translated into the worker's language before it is ever voiced (see app/translation.py).
+_ALLOWED_LANGS = {"hi", "mr", "en", "auto"}
 
 
 @router.post("/transcribe", response_model=TranscribeResponse)
