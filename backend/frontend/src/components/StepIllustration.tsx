@@ -10,7 +10,7 @@ import type { Step } from '../lib/types'
  * the action. A worker should understand the action from the picture alone in one glance; text
  * underneath is there to confirm, not to carry the meaning. */
 
-type Props = Pick<Step, 'icon' | 'is_safety_warning'>
+type Props = Pick<Step, 'icon' | 'is_safety_warning'> & { image_url?: string | null }
 
 const INK = '#1e293b'
 const DANGER = '#dc2626'
@@ -306,8 +306,11 @@ export function hasIllustration(icon: string): boolean {
   return Boolean(ILLUSTRATION_MAP[(icon || '').trim().toLowerCase()])
 }
 
-/** The artwork only - callers decide where/when to show it (see IllustrationModal). */
-export function StepIllustrationArt({ icon, is_safety_warning }: Props) {
+/** The artwork only - callers decide where/when to show it (see IllustrationModal). A
+ * supervisor-uploaded photo (image_url) always wins over the keyword-mapped stock art, since
+ * it's a real picture of this specific step rather than a generic stand-in. */
+export function StepIllustrationArt({ icon, is_safety_warning, image_url }: Props) {
+  if (image_url) return <ImageScene src={image_url} />
   const key = (icon || '').trim().toLowerCase()
   const Illustration = ILLUSTRATION_MAP[key]
   return Illustration ? <Illustration /> : <Fallback isSafety={is_safety_warning} />

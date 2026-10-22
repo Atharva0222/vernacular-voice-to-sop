@@ -46,6 +46,16 @@ class SOPCreate(BaseModel):
 
 class StoredStep(Step):
     id: int
+    image_url: str | None = None
+
+
+class StepImageUploadUrl(BaseModel):
+    upload_url: str
+    storage_path: str
+
+
+class StepImageUpdate(BaseModel):
+    storage_path: str
 
 
 class Line(BaseModel):

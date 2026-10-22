@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     supabase_service_role_key: str  # RLS-bypassing - worker routes + Storage admin ops only
 
     storage_resume_bucket: str = "candidate-resumes"
+    storage_step_image_bucket: str = "step-illustrations"  # public: worker cards load these with no auth
 
     cors_origins: list[str] = []  # the preview is same-origin and needs none
 

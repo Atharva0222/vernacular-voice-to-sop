@@ -4,6 +4,8 @@ import { type ChangeEvent, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { AppShell } from '../components/AppShell'
 import { BackLink, PageHeader } from '../components/layout'
+import { StepIllustrationArt } from '../components/StepIllustration'
+import { StepImagePicker } from '../components/StepImagePicker'
 import { Button, Select, Spinner } from '../components/ui'
 import { apiAuth, getMachine } from '../lib/api'
 import { useRequireRole } from '../hooks/useSession'
@@ -30,6 +32,7 @@ export default function Create() {
   const [transcript, setTranscript] = useState<string | null>(null)
   const [detectedLang, setDetectedLang] = useState<Language | null>(null)
   const [generating, setGenerating] = useState(false)
+  const [reviewSop, setReviewSop] = useState<StoredSOP | null>(null)
 
   const recorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<BlobPart[]>([])
@@ -127,7 +130,11 @@ export default function Create() {
           steps,
         }),
       })
-      window.location.hash = `#/cards?machine=${sop.machine_id}`
+      setStage(null)
+      setGenerating(false)
+      setShowRecorder(false)
+      setCurrentSop(null)
+      setReviewSop(sop)
     } catch (err) {
       setStage(null)
       setError(err instanceof Error ? err.message : 'Something went wrong.')
@@ -175,7 +182,7 @@ export default function Create() {
 
       {loadError && <p className="rounded-2xl bg-stop-bg px-4 py-3 text-sm font-medium text-stop">{loadError}</p>}
 
-      {currentSop && !showRecorder && (
+      {currentSop && !showRecorder && !reviewSop && (
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-border bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-base font-bold text-ink">Cards now in use, version {currentSop.version}</h2>
@@ -253,6 +260,32 @@ export default function Create() {
               </p>
             </details>
           )}
+        </motion.div>
+      )}
+
+      {reviewSop && (
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="rounded-3xl border border-border bg-white p-6 shadow-sm">
+          <h2 className="text-base font-bold text-ink">Cards saved. Add a picture to any step?</h2>
+          <p className="mt-1 text-sm text-ink-soft">Optional - a photo makes a card easier to follow at a glance. Skip any step you don't need one for.</p>
+          <ol className="mt-5 flex flex-col gap-3">
+            {reviewSop.steps.map((s) => (
+              <li key={s.id} className="flex items-center gap-4 rounded-2xl border border-border bg-canvas p-3">
+                <div className="h-16 w-20 shrink-0 overflow-hidden rounded-xl">
+                  <StepIllustrationArt icon={s.icon} is_safety_warning={s.is_safety_warning} image_url={s.image_url} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="mr-2 text-xs font-bold tabular-nums text-ink-faint">{s.step_number}</span>
+                  <span className="lang-dev text-sm leading-snug text-ink" dir="auto">
+                    {s.text}
+                  </span>
+                </div>
+                <StepImagePicker stepId={s.id} onUploaded={setReviewSop} />
+              </li>
+            ))}
+          </ol>
+          <Button className="mt-5 w-full" onClick={() => (window.location.hash = `#/cards?machine=${reviewSop.machine_id}`)}>
+            Done <ChevronRight size={16} />
+          </Button>
         </motion.div>
       )}
     </AppShell>

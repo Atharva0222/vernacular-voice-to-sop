@@ -3,7 +3,9 @@ import { X } from 'lucide-react'
 import { StepIllustrationArt } from './StepIllustration'
 import type { Step } from '../lib/types'
 
-export function IllustrationModal({ step, onClose }: { step: (Pick<Step, 'icon' | 'is_safety_warning' | 'text' | 'step_number'>) | null; onClose: () => void }) {
+type ModalStep = Pick<Step, 'icon' | 'is_safety_warning' | 'text' | 'step_number'> & { image_url?: string | null }
+
+export function IllustrationModal({ step, onClose }: { step: ModalStep | null; onClose: () => void }) {
   return (
     <AnimatePresence>
       {step && (
@@ -23,7 +25,7 @@ export function IllustrationModal({ step, onClose }: { step: (Pick<Step, 'icon' 
             onClick={(e) => e.stopPropagation()}
           >
             <div className="relative">
-              <StepIllustrationArt icon={step.icon} is_safety_warning={step.is_safety_warning} />
+              <StepIllustrationArt icon={step.icon} is_safety_warning={step.is_safety_warning} image_url={step.image_url} />
               <button
                 onClick={onClose}
                 aria-label="बंद करें"

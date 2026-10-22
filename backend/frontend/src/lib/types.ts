@@ -11,6 +11,7 @@ export interface Step {
 export interface StoredStep extends Step {
   id: number
   audio_url?: string | null
+  image_url?: string | null
 }
 
 export interface MachineSummary {

@@ -1,7 +1,6 @@
 import secrets
 from typing import Annotated
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import text
 
@@ -18,6 +17,7 @@ from app.schemas import (
     JobPostingCreate,
     ResumeUploadUrl,
 )
+from app.storage import create_signed_upload_url
 
 router = APIRouter()
 Recruiter = Annotated[dict, Depends(auth.recruiter_access)]
@@ -26,24 +26,6 @@ _APPLICATION_SQL = """
 SELECT a.id, a.job_posting_id, a.candidate_id, c.name AS candidate_name, a.stage, a.created_at
 FROM applications a JOIN candidates c ON c.id = a.candidate_id
 """
-
-
-def _create_signed_upload_url(path: str) -> str:
-    """Issues a short-lived, browser-usable upload URL via Supabase Storage's own signing
-    endpoint - verified directly against the local Storage API (POST .../object/upload/sign/
-    {bucket}/{path} -> {url, token}) while building this, not assumed from memory. The
-    service-role key never leaves the backend; only the resulting signed URL does."""
-    r = httpx.post(
-        f"{settings.supabase_url}/storage/v1/object/upload/sign/{settings.storage_resume_bucket}/{path}",
-        headers={
-            "Authorization": f"Bearer {settings.supabase_service_role_key}",
-            "apikey": settings.supabase_service_role_key,
-        },
-        json={},
-        timeout=10,
-    )
-    r.raise_for_status()
-    return f"{settings.supabase_url}/storage/v1{r.json()['url']}"
 
 
 @router.get("/job-postings", response_model=list[JobPosting])
@@ -100,7 +82,7 @@ def create_resume_upload_url(candidate_id: int, person: Recruiter) -> ResumeUplo
         if not conn.execute(text("SELECT 1 FROM candidates WHERE id = :id"), {"id": candidate_id}).fetchone():
             raise HTTPException(404, "candidate not found")
     path = f"{candidate_id}/{secrets.token_hex(8)}.pdf"
-    return ResumeUploadUrl(upload_url=_create_signed_upload_url(path), storage_path=path)
+    return ResumeUploadUrl(upload_url=create_signed_upload_url(settings.storage_resume_bucket, path), storage_path=path)
 
 
 @router.patch("/candidates/{candidate_id}", response_model=Candidate)

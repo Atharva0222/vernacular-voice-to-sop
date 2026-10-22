@@ -44,6 +44,15 @@ export default function Machines() {
     return isSupervisor && ownLineIds ? all.filter((m) => ownLineIds.includes(m.line_id)) : all
   }, [machinesQuery.data, isSupervisor, ownLineIds])
 
+  // A supervisor's list is scoped to their own lines, via a second, authenticated query
+  // (/api/lines) that resolves slower than the unauthenticated /api/machines one - wait for
+  // both before rendering, so the page never flashes every machine in the plant before
+  // narrowing down to the supervisor's own. Confirmed as a real race, not hypothetical: caught
+  // it live, the unscoped list rendering for a beat before snapping down to the correct one.
+  const stillScoping = isSupervisor && !linesQuery.isSuccess
+  const isLoading = machinesQuery.isLoading || stillScoping
+  const isReady = machinesQuery.isSuccess && !stillScoping
+
   // Keyed on isStaff, not isSupervisor: any signed-in staff member (manager, plant_head, HR...)
   // gets the English staff copy. Only a worker with no session at all sees the Hindi one.
   const WORDS = isStaff
@@ -88,7 +97,7 @@ export default function Machines() {
     <>
       <PageHeader title={WORDS.title} subtitle={WORDS.subtitle} devanagari={!isStaff} />
 
-      {machinesQuery.isLoading && (
+      {isLoading && (
         <div className="flex items-center gap-2 py-10 text-ink-soft">
           <Spinner /> Loading machines...
         </div>
@@ -100,7 +109,7 @@ export default function Machines() {
         </p>
       )}
 
-      {machinesQuery.isSuccess && machines.length === 0 && (
+      {isReady && machines.length === 0 && (
         <EmptyState
           icon={Factory}
           title={isStaff ? 'No machines on your lines yet' : 'कोई मशीन उपलब्ध नहीं'}
@@ -108,7 +117,7 @@ export default function Machines() {
         />
       )}
 
-      {machinesQuery.isSuccess && machines.length > 0 && (
+      {isReady && machines.length > 0 && (
         <div className="grid gap-5 sm:grid-cols-2">
           {machines.map((m, i) => {
             const hasSop = m.sop_id !== null
